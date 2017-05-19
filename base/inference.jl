@@ -2199,7 +2199,7 @@ function tmerge(typea::ANY, typeb::ANY)
             (isa(typeb,DataType) && length(typeb.parameters)>3)
             # widen tuples faster (see #6704), but not too much, to make sure we can infer
             # e.g. (t::Union{Tuple{Bool},Tuple{Bool,Int}})[1]
-            return Tuple
+            return tuple_fold(typea, typeb)
         end
     end
     u = Union{typea, typeb}
@@ -2209,6 +2209,19 @@ function tmerge(typea::ANY, typeb::ANY)
         return Any
     end
     return u
+end
+
+# try to reduce a tuple to a single element type by calling tmerge on all of the parameters
+function tuple_fold(typea::ANY, typeb::ANY)
+    isa(typea, Union) && (typea = tuple_fold(typea.a, typea.b))
+    (!isa(typea, DataType) || typea === Tuple) && return Tuple
+    isa(typeb, Union) && (typeb = tuple_fold(typeb.a, typeb.b))
+    (!isa(typeb, DataType) || typeb === Tuple) && return Tuple
+    v = unwrapva(tuple_tail_elem(Union{}, typea.parameters))
+    v === Any && return Tuple
+    v = tuple_tail_elem(v, typeb.parameters)
+    unwrapva(v) === Any && return Tuple
+    return Tuple{v}
 end
 
 function smerge(sa::Union{NotFound,VarState}, sb::Union{NotFound,VarState})
