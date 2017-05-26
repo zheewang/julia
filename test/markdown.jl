@@ -1051,3 +1051,6 @@ let text =
         @test expected == Markdown.latex(md)
     end
 end
+
+# issue 20225, check this can print
+@test typeof(sprint(term, parse(" "))) == String
