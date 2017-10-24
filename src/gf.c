@@ -279,11 +279,12 @@ jl_code_info_t *jl_type_infer(jl_method_instance_t **pli, size_t world, int forc
 
 int jl_is_rettype_inferred(jl_method_instance_t *li)
 {
-    if (!li->inferred)
+    jl_value_t *code = li->inferred;
+    if (!code)
         return 0;
-    if (jl_is_code_info(li->inferred) && !((jl_code_info_t*)li->inferred)->inferred)
-        return 0;
-    return 1;
+    if (code == jl_nothing || jl_ast_flag_inferred((jl_array_t*)code))
+        return 1;
+    return 0;
 }
 
 struct set_world {
@@ -412,6 +413,7 @@ JL_DLLEXPORT jl_method_instance_t* jl_set_method_inferred(
     jl_gc_wb(li, inferred);
     if (const_flags & 1) {
         assert(const_flags & 2);
+        li->fptr = (jl_fptr_t)(void*)inferred_const;
         li->jlcall_api = JL_API_CONST;
     }
     if (const_flags & 2) {
@@ -1725,37 +1727,34 @@ JL_DLLEXPORT jl_value_t *jl_matching_methods(jl_tupletype_t *types, int lim, int
     return ml_matches(mt->defs, 0, types, lim, include_ambiguous, world, min_valid, max_valid);
 }
 
-jl_llvm_functions_t jl_compile_for_dispatch(jl_method_instance_t **pli, size_t world)
+jl_generic_fptr_t jl_compile_for_dispatch(jl_method_instance_t **pli, size_t world)
 {
+    jl_generic_fptr_t fptr;
     jl_method_instance_t *li = *pli;
-    if (li->jlcall_api == JL_API_CONST)
-        return li->functionObjectsDecls;
+    if (li->jlcall_api != JL_API_NOT_SET) {
+        fptr.jlcall_api = li->jlcall_api;
+        fptr.fptr = li->fptr;
+        return fptr;
+    }
     if (jl_options.compile_enabled == JL_OPTIONS_COMPILE_OFF ||
         jl_options.compile_enabled == JL_OPTIONS_COMPILE_MIN) {
         // copy fptr from the template method definition
         jl_method_t *def = li->def.method;
         if (jl_is_method(def) && def->unspecialized) {
-            if (def->unspecialized->jlcall_api == JL_API_CONST) {
-                li->functionObjectsDecls.functionObject = NULL;
-                li->functionObjectsDecls.specFunctionObject = NULL;
-                li->inferred = def->unspecialized->inferred;
-                jl_gc_wb(li, li->inferred);
-                li->inferred_const = def->unspecialized->inferred_const;
-                if (li->inferred_const)
-                    jl_gc_wb(li, li->inferred_const);
-                li->jlcall_api = JL_API_CONST;
-                return li->functionObjectsDecls;
-            }
             if (def->unspecialized->fptr) {
+                if (def->unspecialized->jlcall_api == JL_API_CONST)
+                    li->inferred_const = def->unspecialized->inferred_const;
                 li->functionObjectsDecls.functionObject = NULL;
                 li->functionObjectsDecls.specFunctionObject = NULL;
                 li->jlcall_api = def->unspecialized->jlcall_api;
                 li->fptr = def->unspecialized->fptr;
-                return li->functionObjectsDecls;
+                fptr.jlcall_api = li->jlcall_api;
+                fptr.fptr = li->fptr;
+                return fptr;
             }
         }
         if (jl_options.compile_enabled == JL_OPTIONS_COMPILE_OFF &&
-            jl_is_method(li->def.method)) {
+                jl_is_method(li->def.method)) {
             jl_code_info_t *src = jl_code_for_interpreter(li);
             if (!jl_code_requires_compiler(src)) {
                 li->inferred = (jl_value_t*)src;
@@ -1764,13 +1763,12 @@ jl_llvm_functions_t jl_compile_for_dispatch(jl_method_instance_t **pli, size_t w
                 li->functionObjectsDecls.specFunctionObject = NULL;
                 li->fptr = (jl_fptr_t)&jl_interpret_call;
                 li->jlcall_api = JL_API_INTERPRETED;
-                return li->functionObjectsDecls;
+                fptr.jlcall_api = JL_API_INTERPRETED;
+                fptr.fptr = li->fptr;
+                return fptr;
             }
         }
     }
-    jl_llvm_functions_t decls = li->functionObjectsDecls;
-    if (decls.functionObject != NULL || li->jlcall_api == JL_API_CONST)
-        return decls;
 
     jl_code_info_t *src = NULL;
     if (jl_is_method(li->def.method) && !jl_is_rettype_inferred(li) &&
@@ -1781,10 +1779,12 @@ jl_llvm_functions_t jl_compile_for_dispatch(jl_method_instance_t **pli, size_t w
         li = *pli;
     }
     // check again, because jl_type_infer may have changed li or compiled it
-    decls = li->functionObjectsDecls;
-    if (decls.functionObject != NULL || li->jlcall_api == JL_API_CONST)
-        return decls;
-    return jl_compile_linfo(&li, src, world, &jl_default_cgparams);
+    if (li->jlcall_api != JL_API_NOT_SET) {
+        fptr.jlcall_api = li->jlcall_api;
+        fptr.fptr = li->fptr;
+        return fptr;
+    }
+    return jl_generate_fptr(li, src, world);
 }
 
 // compile-time method lookup
@@ -1852,7 +1852,7 @@ JL_DLLEXPORT int jl_compile_hint(jl_tupletype_t *types)
         if (jl_options.outputo || jl_options.outputbc || jl_options.outputunoptbc) {
             // If we are saving LLVM or native code, generate the LLVM IR so that it'll
             // be included in the saved LLVM module.
-            jl_compile_linfo(&li, src, world, &jl_default_cgparams);
+            jl_generate_ir(li, src, world);
         }
         else if (!jl_options.outputji) {
             // If we are only saving ji files (e.g. package pre-compilation for now),
@@ -1862,8 +1862,7 @@ JL_DLLEXPORT int jl_compile_hint(jl_tupletype_t *types)
             jl_ptls_t ptls = jl_get_ptls_states();
             size_t last_age = ptls->world_age;
             ptls->world_age = world;
-            jl_generic_fptr_t fptr;
-            jl_compile_method_internal(&fptr, li);
+            jl_compile_method_internal(li);
             ptls->world_age = last_age;
         }
     }
@@ -1941,7 +1940,7 @@ static void show_call(jl_value_t *F, jl_value_t **args, uint32_t nargs)
 
 static jl_value_t *verify_type(jl_value_t *v)
 {
-    assert(jl_typeof(jl_typeof(v)));
+    assert(v && jl_typeof(v) && jl_typeof(jl_typeof(v)) == (jl_value_t*)jl_datatype_type);
     return v;
 }
 

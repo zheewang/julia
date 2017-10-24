@@ -177,7 +177,7 @@ let gf_err, tsk = @async nothing # create a Task for yield to try to run
     end
     @test_throws ErrorException gf_err()
     @test_throws ErrorException gf_err()
-    @test gf_err_ref[] == 4
+    @test gf_err_ref[] == 6
 end
 
 gf_err_ref[] = 0
@@ -193,7 +193,7 @@ let gf_err2
     @test_throws ErrorException gf_err2(code_typed)
     @test_throws ErrorException gf_err2(code_llvm)
     @test_throws ErrorException gf_err2(code_native)
-    @test gf_err_ref[] == 12
+    @test gf_err_ref[] == 18
     @test gf_err2(code_lowered) === nothing
 end
 

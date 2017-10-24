@@ -214,7 +214,7 @@ JL_EXTENSION typedef struct {
     union {
         jl_fptr_t fptr;
         jl_fptr_t fptr1;
-        // constant fptr2;
+        jl_value_t *constant_2;
         jl_fptr_sparam_t fptr3;
         jl_fptr_linfo_t fptr4;
     };
@@ -300,9 +300,12 @@ typedef struct _jl_method_instance_t {
     size_t max_world;
     uint8_t inInference; // flags to tell if inference is running on this function
     uint8_t jlcall_api;
-    uint8_t compile_traced; // if set will notify callback if this linfo is compiled
-    jl_fptr_t fptr; // jlcall entry point with api specified by jlcall_api
-    jl_fptr_t unspecialized_ducttape; // if template can't be compiled due to intrinsics, an un-inferred fptr may get stored here, jlcall_api = JL_API_GENERIC
+    uint8_t compile_traced; // if set, will notify callback if this linfo is compiled
+    // jlcall entry point with api specified by jlcall_api
+    jl_fptr_t fptr;
+    // hack to handle generated functions
+    // an un-inferred fptr may get stored here, jlcall_api = JL_API_GENERIC
+    jl_fptr_t unspecialized_ducttape;
 
     // names of declarations in the JIT,
     // suitable for referencing in LLVM IR

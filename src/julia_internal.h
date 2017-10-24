@@ -319,13 +319,9 @@ jl_svec_t *jl_perm_symsvec(size_t n, ...);
 jl_value_t *jl_gc_realloc_string(jl_value_t *s, size_t sz);
 
 jl_code_info_t *jl_type_infer(jl_method_instance_t **li, size_t world, int force);
-jl_generic_fptr_t jl_generate_fptr(jl_method_instance_t *li, const char *F, size_t world);
-jl_llvm_functions_t jl_compile_linfo(
-        jl_method_instance_t **pli,
-        jl_code_info_t *src,
-        size_t world,
-        const jl_cgparams_t *params);
-jl_llvm_functions_t jl_compile_for_dispatch(jl_method_instance_t **li, size_t world);
+jl_generic_fptr_t jl_generate_fptr(jl_method_instance_t *li, jl_code_info_t *src, size_t world);
+void jl_generate_ir(jl_method_instance_t *li, jl_code_info_t *src, size_t world);
+jl_generic_fptr_t jl_compile_for_dispatch(jl_method_instance_t **li, size_t world);
 JL_DLLEXPORT int jl_compile_hint(jl_tupletype_t *types);
 jl_value_t *jl_interpret_call(jl_method_instance_t *lam, jl_value_t **args, uint32_t nargs);
 jl_code_info_t *jl_code_for_interpreter(jl_method_instance_t *lam);
@@ -333,57 +329,30 @@ int jl_code_requires_compiler(jl_code_info_t *src);
 jl_code_info_t *jl_new_code_info_from_ast(jl_expr_t *ast);
 JL_DLLEXPORT jl_code_info_t *jl_new_code_info_uninit(void);
 
-STATIC_INLINE jl_value_t *jl_compile_method_internal(jl_generic_fptr_t *fptr,
-                                                     jl_method_instance_t *meth)
+STATIC_INLINE jl_generic_fptr_t jl_compile_method_internal(jl_method_instance_t *meth)
 {
-    if (meth->jlcall_api == JL_API_CONST)
-        return jl_assume(meth->inferred_const);
-    fptr->fptr = meth->fptr;
-    fptr->jlcall_api = meth->jlcall_api;
-    if (__unlikely(fptr->fptr == NULL || fptr->jlcall_api == 0)) {
+    jl_generic_fptr_t fptr;
+    fptr.fptr = meth->fptr;
+    fptr.jlcall_api = meth->jlcall_api;
+    if (__unlikely(fptr.fptr == NULL || fptr.jlcall_api == JL_API_NOT_SET)) {
         size_t world = jl_get_ptls_states()->world_age;
-        // first see if it likely needs to be compiled
-        const char *F = meth->functionObjectsDecls.functionObject;
-        if (!F) // ask codegen to try to turn it into llvm code
-            F = jl_compile_for_dispatch(&meth, world).functionObject;
-        if (meth->jlcall_api == JL_API_CONST)
-            return jl_assume(meth->inferred_const);
-        // if it hasn't been inferred, try using the unspecialized meth cache instead
-        if (!meth->inferred) {
-            fptr->fptr = meth->unspecialized_ducttape;
-            fptr->jlcall_api = JL_API_GENERIC;
-            if (!fptr->fptr) {
-                if (jl_is_method(meth->def.method) && meth->def.method->unspecialized) {
-                    fptr->fptr = meth->def.method->unspecialized->fptr;
-                    fptr->jlcall_api = meth->def.method->unspecialized->jlcall_api;
-                    if (fptr->jlcall_api == 2) {
-                        return jl_assume(meth->def.method->unspecialized->inferred_const);
-                    }
-                }
-            }
-        }
-        if (!fptr->fptr || fptr->jlcall_api == 0) {
-            // ask codegen to make the fptr
-            *fptr = jl_generate_fptr(meth, F, world);
-            if (fptr->jlcall_api == JL_API_CONST)
-                return jl_assume(meth->inferred_const);
-        }
+        fptr = jl_compile_for_dispatch(&meth, world);
     }
-    return NULL;
+    return fptr;
 }
 
-STATIC_INLINE jl_value_t *jl_call_fptr_internal(const jl_generic_fptr_t *fptr,
+STATIC_INLINE jl_value_t *jl_call_fptr_internal(jl_generic_fptr_t fptr,
                                                 jl_method_instance_t *meth,
                                                 jl_value_t **args, uint32_t nargs)
 {
-    if (fptr->jlcall_api == JL_API_GENERIC)
-        return fptr->fptr1(args[0], &args[1], nargs-1);
-    else if (fptr->jlcall_api == JL_API_CONST)
-        return meth->inferred;
-    else if (fptr->jlcall_api == JL_API_WITH_PARAMETERS)
-        return fptr->fptr3(meth->sparam_vals, args[0], &args[1], nargs-1);
-    else if (fptr->jlcall_api == JL_API_INTERPRETED)
-        return fptr->fptr4(meth, &args[0], nargs, meth->sparam_vals);
+    if (fptr.jlcall_api == JL_API_GENERIC)
+        return fptr.fptr1(args[0], &args[1], nargs - 1);
+    if (fptr.jlcall_api == JL_API_CONST)
+        return fptr.constant_2;
+    else if (fptr.jlcall_api == JL_API_WITH_PARAMETERS)
+        return fptr.fptr3(meth->sparam_vals, args[0], &args[1], nargs - 1);
+    else if (fptr.jlcall_api == JL_API_INTERPRETED)
+        return fptr.fptr4(meth, &args[0], nargs, meth->sparam_vals);
     else
         abort();
 }
@@ -391,12 +360,7 @@ STATIC_INLINE jl_value_t *jl_call_fptr_internal(const jl_generic_fptr_t *fptr,
 // invoke (compiling if necessary) the jlcall function pointer for a method
 STATIC_INLINE jl_value_t *jl_call_method_internal(jl_method_instance_t *meth, jl_value_t **args, uint32_t nargs)
 {
-    jl_generic_fptr_t fptr;
-    jl_value_t *v = jl_compile_method_internal(&fptr, meth);
-    if (v)
-        return v;
-    (void)jl_assume(fptr.jlcall_api != JL_API_CONST);
-    return jl_call_fptr_internal(&fptr, meth, args, nargs);
+    return jl_call_fptr_internal(jl_compile_method_internal(meth), meth, args, nargs);
 }
 
 jl_value_t *jl_argtype_with_function(jl_function_t *f, jl_value_t *types);

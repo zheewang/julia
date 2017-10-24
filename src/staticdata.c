@@ -664,6 +664,8 @@ static void jl_write_values(jl_serializer_state *s)
                 if (jl_is_method(m->def.method)) {
                     uintptr_t fptr_id = jl_fptr_id((void*)(uintptr_t)m->fptr);
                     if (m->jlcall_api == JL_API_CONST) {
+                        arraylist_push(&s->relocs_list, (void*)(reloc_offset + offsetof(jl_method_instance_t, fptr))); // relocation location
+                        arraylist_push(&s->relocs_list, (void*)backref_id(s, m->inferred_const)); // relocation target
                     }
                     else if (fptr_id >= 2) {
                         //write_int8(s->s, -li->jlcall_api);

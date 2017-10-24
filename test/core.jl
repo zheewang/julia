@@ -4696,9 +4696,9 @@ end
 cfunction(f18054, Cint, Tuple{})
 
 # issue #18986: the ccall optimization of cfunction leaves JL_TRY stack in bad state
-dummy18996() = return nothing
+dummy18986() = return nothing
 function main18986()
-    cfunction(dummy18986, Cvoid, ())
+    cfunction(dummy18986, Cvoid, Tuple{})
     ccall((:dummy2, "this_is_a_nonexisting_library"), Cvoid, ())
 end
 @test_throws ErrorException main18986()
@@ -4775,13 +4775,23 @@ function f18173()
 end
 @test f18173() == false
 
-let _true = Ref(true), f, g, h
-    @noinline f() = ccall((:time, "error_library_doesnt_exist\0"), Cvoid, ()) # some expression that throws an error in codegen
-    @noinline g() = _true[] ? 0 : h()
-    @noinline h() = (g(); f())
-    @test_throws ErrorException @code_native h() # due to a failure to compile f()
-    @test g() == 0
+# manually generate a broken function, which will break codegen
+@eval @noinline f_broken_code() = 0
+let m = which(f_broken_code, ())
+   let src = Base.uncompressed_ast(m)
+       src.code = Any[
+           Expr(:meta, :noinline)
+           Expr(:return, Expr(:invalid))
+       ]
+       m.source = src
+   end
 end
+_true = true
+# and show that we can still work around it
+@noinline g_broken_code() = _true ? 0 : h_broken_code()
+@noinline h_broken_code() = (g_broken_code(); f_broken_code())
+@test contains(sprint(code_native, h_broken_code, ()), "h_broken_code")
+@test g_broken_code() == 0
 
 fVararg(x) = Vararg{x}
 gVararg(a::fVararg(Int)) = length(a)

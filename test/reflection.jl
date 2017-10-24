@@ -379,22 +379,6 @@ end
 end
 @test functionloc(f14346)[2] == @__LINE__() - 4
 
-# test jl_get_llvm_fptr. We test functions both in and definitely not in the system image
-definitely_not_in_sysimg() = nothing
-for (f, t) in Any[(definitely_not_in_sysimg, Tuple{}),
-                  (Base.:+, Tuple{Int, Int})]
-    meth = which(f, t)
-    tt = Tuple{typeof(f), t.parameters...}
-    (ti, env) = ccall(:jl_type_intersection_with_env, Any, (Any, Any), tt, meth.sig)::SimpleVector
-    @test ti === tt # intersection should be a subtype
-    world = typemax(UInt)
-    linfo = ccall(:jl_specializations_get_linfo, Ref{Core.MethodInstance}, (Any, Any, Any, UInt), meth, tt, env, world)
-    params = Base.CodegenParams()
-    llvmf = ccall(:jl_get_llvmf_decl, Ptr{Cvoid}, (Any, UInt, Bool, Base.CodegenParams), linfo::Core.MethodInstance, world, true, params)
-    @test llvmf != C_NULL
-    @test ccall(:jl_get_llvm_fptr, Ptr{Cvoid}, (Ptr{Cvoid},), llvmf) != C_NULL
-end
-
 module MacroTest
 export @macrotest
 macro macrotest(x::Int, y::Symbol) end

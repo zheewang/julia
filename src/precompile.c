@@ -259,7 +259,7 @@ static void _compile_all_deq(jl_array_t *found)
         // first try to create leaf signatures from the signature declaration and compile those
         _compile_all_union((jl_value_t*)ml->sig);
         // then also compile the generic fallback
-        jl_compile_linfo(&linfo, (jl_code_info_t*)src, jl_world_counter, &jl_default_cgparams);
+        jl_generate_ir(linfo, (jl_code_info_t*)src, jl_world_counter);
         assert(linfo->functionObjectsDecls.functionObject != NULL);
     }
     JL_GC_POP();
