@@ -13,9 +13,9 @@ Please see the manual section on packages for more information.
 """
 module Pkg
 
-export Dir, Types, Reqs, Cache, Read, Query, Resolve, Write, Entry
-export dir, init, rm, add, available, installed, status, clone, checkout,
-       update, resolve, test, build, free, pin, PkgError, setprotocol!
+#export Dir, Types, Reqs, Cache, Read, Query, Resolve, Write, Entry
+#export dir, init, rm, add, available, installed, status, clone, checkout,
+#       update, resolve, test, build, free, pin, PkgError, setprotocol!
 
 const DEFAULT_META = "https://github.com/JuliaLang/METADATA.jl"
 const META_BRANCH = "metadata-v2"
@@ -85,7 +85,10 @@ custom METADATA setup.
 init(meta::AbstractString=DEFAULT_META, branch::AbstractString=META_BRANCH) = Dir.init(meta,branch)
 
 function __init__()
+    Base.PKG_MODULE_REF[] = Pkg
+
     vers = "v$(VERSION.major).$(VERSION.minor)"
+    pushfirst!(Base.LOAD_PATH, Pkg.dir)
     pushfirst!(Base.LOAD_CACHE_PATH, abspath(Dir._pkgroot(), "lib", vers))
 end
 
@@ -287,7 +290,6 @@ Set the protocol used to access GitHub-hosted packages. Defaults to 'https', wit
 `proto` delegating the choice to the package developer.
 """
 setprotocol!(proto::AbstractString) = Cache.setprotocol!(proto)
-
 
 # point users to PkgDev
 register(args...) =

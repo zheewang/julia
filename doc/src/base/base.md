@@ -91,7 +91,6 @@ Base.LibGit2
 Base.Libc
 Base.Markdown
 Base.Meta
-Base.Pkg
 Base.StackTraces
 Base.Sys
 Base.Threads

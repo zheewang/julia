@@ -441,8 +441,7 @@ include("missing.jl")
 # libgit2 support
 include("libgit2/libgit2.jl")
 
-# package manager
-include("pkg/pkg.jl")
+const PKG_MODULE_REF = Ref{Module}()
 
 # worker threads
 include("threadcall.jl")
@@ -525,6 +524,7 @@ Base.require(Base, :SuiteSparse)
 Base.require(Base, :Test)
 Base.require(Base, :Unicode)
 Base.require(Base, :REPL)
+Base.require(Base, :Pkg)
 
 @eval Base begin
     @deprecate_binding Test root_module(Base, :Test) true ", run `using Test` instead"
@@ -559,6 +559,8 @@ Base.require(Base, :REPL)
     @deprecate_binding LineEdit        root_module(Base, :REPL).LineEdit        true ", use `REPL.LineEdit` instead"
     @deprecate_binding REPLCompletions root_module(Base, :REPL).REPLCompletions true ", use `REPL.REPLCompletions` instead"
     @deprecate_binding Terminals       root_module(Base, :REPL).Terminals       true ", use `REPL.Terminals` instead"
+
+    @deprecate_binding Pkg root_module(Base, :Pkg) true ", run `using Pkg` instead"
 end
 
 empty!(DEPOT_PATH)
