@@ -1,6 +1,6 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-import Base.Pkg.PkgError
+import Pkg.PkgError
 using Random: randstring
 
 function capture_stdout(f::Function)
@@ -324,7 +324,7 @@ temp_pkg_dir() do
         meth = first(methods(Example.domath))
         fname = string(meth.file)
         @test ('\\' in fname) == Sys.iswindows()
-        @test startswith(Base.url(meth), "https://github.com/JuliaLang/Example.jl/tree")
+        # @test startswith(Base.url(meth), "https://github.com/JuliaLang/Example.jl/tree")
     end
 
     # add a directory that is not a git repository
@@ -564,8 +564,7 @@ temp_pkg_dir() do
         write(joinpath(home, ".juliarc.jl"), "const JULIA_RC_LOADED = true")
 
         withenv((Sys.iswindows() ? "USERPROFILE" : "HOME") => home) do
-            code = "redirect_stderr(STDOUT); using Logging; global_logger(SimpleLogger(STDOUT)); Pkg.build(\"$package\")"
-
+            code = "redirect_stderr(STDOUT); using Logging; global_logger(SimpleLogger(STDOUT)); import Pkg; Pkg.build(\"$package\")"
             msg = read(`$(Base.julia_cmd()) --startup-file=no -e $code`, String)
             @test contains(msg, "JULIA_RC_LOADED defined false")
             @test contains(msg, "Main.JULIA_RC_LOADED defined false")
@@ -574,7 +573,7 @@ temp_pkg_dir() do
             @test contains(msg, "JULIA_RC_LOADED defined false")
             @test contains(msg, "Main.JULIA_RC_LOADED defined true")
 
-            code = "redirect_stderr(STDOUT); using Logging; global_logger(SimpleLogger(STDOUT)); Pkg.test(\"$package\")"
+            code = "redirect_stderr(STDOUT); using Logging; global_logger(SimpleLogger(STDOUT)); import Pkg; Pkg.test(\"$package\")"
 
             msg = read(`$(Base.julia_cmd()) --startup-file=no -e $code`, String)
             @test contains(msg, "JULIA_RC_LOADED defined false")
@@ -597,7 +596,7 @@ temp_pkg_dir() do
             """
         write_build(package, content)
 
-        code = "Pkg.build(\"$package\")"
+        code = "import Pkg; Pkg.build(\"$package\")"
         msg = run(pipeline(
             `$(Base.julia_cmd()) --startup-file=no -e $code`,
             stdout=stdout_file, stderr=stderr_file))
@@ -654,7 +653,7 @@ end
 end
 
 let io = IOBuffer()
-    Base.showerror(io, Base.Pkg.Entry.PkgTestError("ppp"), backtrace())
+    Base.showerror(io, Pkg.Entry.PkgTestError("ppp"), backtrace())
     @test !contains(String(take!(io)), "backtrace()")
 end
 
@@ -689,5 +688,39 @@ temp_pkg_dir(initialize=false) do
                     "Building Normal",
                     "Building Exit",
                     "Building Normal") Pkg.Entry.build!(["Exit", "Normal", "Exit", "Normal"], errors)
+    end
+end
+
+# VersionSet tests
+import Pkg.Types: VersionSet, VersionInterval
+
+function chkint(a::VersionSet)
+    ints = a.intervals
+    for k = 1:length(ints)
+        ints[k].lower < ints[k].upper || return false
+        k < length(ints) && (ints[k].upper < ints[k+1].lower || return false)
+    end
+    return true
+end
+
+const empty_versionset = VersionSet(VersionInterval[])
+@test isempty(empty_versionset)
+
+# VersionSet intersections and unions
+@test empty_versionset ∩ empty_versionset == empty_versionset
+@test empty_versionset ∪ empty_versionset == empty_versionset
+for t = 1:1_000
+    a = VersionSet(sort!(map(v->VersionNumber(v...), [(rand(0:8),rand(0:3)) for i = 1:rand(0:10)]))...)
+    b = VersionSet(sort!(map(v->VersionNumber(v...), [(rand(0:8),rand(0:3)) for i = 1:rand(0:10)]))...)
+    @assert chkint(a)
+    @assert chkint(b)
+    u = a ∪ b
+    @test chkint(u)
+    i = a ∩ b
+    @test chkint(i)
+    for vM = 0:9, vm = 0:5
+        v = VersionNumber(vM, vm)
+        @test (v ∈ a || v ∈ b) ? (v ∈ u) : (v ∉ u)
+        @test (v ∈ a && v ∈ b) ? (v ∈ i) : (v ∉ i)
     end
 end
