@@ -130,7 +130,6 @@ const PAGES = [
             "devdocs/boundscheck.md",
             "devdocs/locks.md",
             "devdocs/offset-arrays.md",
-            "devdocs/libgit2.md",
             "devdocs/require.md",
             "devdocs/inference.md",
         ],
