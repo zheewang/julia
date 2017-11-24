@@ -1140,12 +1140,10 @@ isfilled(::AbstractCredentials)
 
 "Credentials that support only `user` and `password` parameters"
 mutable struct UserPasswordCredentials <: AbstractCredentials
-    user::String
-    pass::String
+    user::SecureString
+    pass::SecureString
     function UserPasswordCredentials(user::AbstractString="", pass::AbstractString="")
-        c = new(user, pass)
-        finalizer(securezero!, c)
-        return c
+        new(user, pass)
     end
 
     # Deprecated constructors
@@ -1175,15 +1173,13 @@ end
 
 "SSH credentials type"
 mutable struct SSHCredentials <: AbstractCredentials
-    user::String
-    pass::String
-    prvkey::String
-    pubkey::String
+    user::SecureString
+    pass::SecureString
+    prvkey::SecureString
+    pubkey::SecureString
     function SSHCredentials(user::AbstractString="", pass::AbstractString="",
                             prvkey::AbstractString="", pubkey::AbstractString="")
-        c = new(user, pass, prvkey, pubkey)
-        finalizer(securezero!, c)
-        return c
+        new(user, pass, prvkey, pubkey)
     end
 
     # Deprecated constructors

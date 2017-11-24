@@ -261,3 +261,43 @@ let
     @test cstring != C_NULL
     @test C_NULL != cstring
 end
+
+## Secure strings ##
+
+@testset "SecureString" begin
+    @testset "wipe original" begin
+        str = String("foobar")
+        secure = SecureString(str)
+        @test str == secure
+
+        # Securely wiping the SecureString will also wipe out the original source
+        Base.securezero!(secure) === secure
+        @test secure != "foobar"
+        @test str != "foobar"
+    end
+
+    @testset "finalizer" begin
+        str = "foobar"
+        secure_a = SecureString(str)
+        secure_b = secure_a
+
+        secure_a = nothing
+        gc()
+
+        @test str == "foobar"  # Still retaining a reference to the original SecureString
+
+        secure_b = nothing
+        gc()
+
+        @test str != "foobar"
+    end
+
+    @testset "deepcopy" begin
+        secure_a = SecureString("foo")
+        secure_b = deepcopy(secure_a)
+        Base.securezero!(secure_a)
+
+        @test secure_a != "foo"
+        @test secure_b == "foo"
+    end
+end

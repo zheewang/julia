@@ -5,11 +5,11 @@ Git credential information used in communication with git credential helpers. Th
 named using the [input/output key specification](https://git-scm.com/docs/git-credential#IOFMT).
 """
 mutable struct GitCredential
-    protocol::Nullable{String}
-    host::Nullable{String}
-    path::Nullable{String}
-    username::Nullable{String}
-    password::Nullable{String}
+    protocol::Nullable{SecureString}
+    host::Nullable{SecureString}
+    path::Nullable{SecureString}
+    username::Nullable{SecureString}
+    password::Nullable{SecureString}
     use_http_path::Bool
 
     function GitCredential(
@@ -18,9 +18,7 @@ mutable struct GitCredential
             path::Nullable{<:AbstractString},
             username::Nullable{<:AbstractString},
             password::Nullable{<:AbstractString})
-        c = new(protocol, host, path, username, password, true)
-        finalizer(securezero!, c)
-        return c
+        new(protocol, host, path, username, password, true)
     end
 end
 
@@ -31,11 +29,11 @@ function GitCredential(
         username::Union{AbstractString,Void}=nothing,
         password::Union{AbstractString,Void}=nothing)
     GitCredential(
-        Nullable{String}(protocol),
-        Nullable{String}(host),
-        Nullable{String}(path),
-        Nullable{String}(username),
-        Nullable{String}(password))
+        Nullable{SecureString}(protocol),
+        Nullable{SecureString}(host),
+        Nullable{SecureString}(path),
+        Nullable{SecureString}(username),
+        Nullable{SecureString}(password))
 end
 
 function GitCredential(cfg::GitConfig, url::AbstractString)
@@ -44,8 +42,8 @@ end
 
 function GitCredential(cred::UserPasswordCredentials, url::AbstractString)
     git_cred = parse(GitCredential, url)
-    git_cred.username = Nullable{String}(deepcopy(cred.user))
-    git_cred.password = Nullable{String}(deepcopy(cred.pass))
+    git_cred.username = Nullable{SecureString}(deepcopy(cred.user))
+    git_cred.password = Nullable{SecureString}(deepcopy(cred.pass))
     return git_cred
 end
 
@@ -102,12 +100,11 @@ function Base.parse(::Type{GitCredential}, url::AbstractString)
 end
 
 function Base.copy!(a::GitCredential, b::GitCredential)
-    # Note: deepcopy calls avoid issues with securezero!
-    a.protocol = deepcopy(b.protocol)
-    a.host = deepcopy(b.host)
-    a.path = deepcopy(b.path)
-    a.username = deepcopy(b.username)
-    a.password = deepcopy(b.password)
+    a.protocol = b.protocol
+    a.host = b.host
+    a.path = b.path
+    a.username = b.username
+    a.password = b.password
     return a
 end
 
@@ -130,7 +127,7 @@ function Base.read!(io::IO, cred::GitCredential)
             # https://git-scm.com/docs/git-credential#git-credential-codeurlcode
             copy!(cred, parse(GitCredential, value))
         else
-            setfield!(cred, Symbol(key), Nullable(String(value)))
+            setfield!(cred, Symbol(key), Nullable{SecureString}(value))
         end
     end
 
