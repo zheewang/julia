@@ -22,6 +22,45 @@ function String(v::Array{UInt8,1})
 end
 
 """
+    SecureString(string::AbstractString)
+
+A string where the contents will be securely wiped when garbage collected. However, it is
+considered best practise to wipe the string using `securezero!(::SecureString)` as soon as
+the secure data is no longer required. Note that when the `string` parameter is of type
+`String` then the memory of the original string will also be securely wiped.
+
+# Examples
+```jldoctest
+julia> str = "abc"::String
+"abc"
+
+julia> s = SecureString(str)
+"abc"
+
+julia> Base.securezero!(s)
+"\0\0\0"
+
+julia> str
+"\0\0\0"
+```
+"""
+mutable struct SecureString <: AbstractString
+    data::Vector{UInt8}
+
+    function SecureString(str::AbstractString)
+        s = new(Vector{UInt8}(str))
+        finalizer(securezero!, s)
+        return s
+    end
+end
+
+function securezero!(s::SecureString)
+    securezero!(s.data)
+    return s
+end
+
+
+"""
     unsafe_string(p::Ptr{UInt8}, [length::Integer])
 
 Copy a string from the address of a C-style (NUL-terminated) string encoded as UTF-8.
@@ -60,6 +99,7 @@ pointer(s::String) = unsafe_convert(Ptr{UInt8}, s)
 pointer(s::String, i::Integer) = pointer(s)+(i-1)
 
 sizeof(s::String) = Core.sizeof(s)
+sizeof(s::SecureString) = Core.sizeof(s.data)
 
 """
     codeunit(s::AbstractString, i::Integer)
@@ -85,6 +125,13 @@ codeunit(s::AbstractString, i::Integer)
         throw(BoundsError(s,i))
     end
     @gc_preserve s unsafe_load(pointer(s, i))
+end
+
+@inline function codeunit(s::SecureString, i::Integer)
+    @boundscheck if (i < 1) | (i > sizeof(s))
+        throw(BoundsError(s,i))
+    end
+    s.data[i]
 end
 
 """
@@ -234,7 +281,7 @@ const utf8_trailing = [
 
 ## required core functionality ##
 
-function endof(s::String)
+function endof(s::Union{String,SecureString})
     i = sizeof(s)
     @inbounds while i > 0 && is_valid_continuation(codeunit(s, i))
         i -= 1
@@ -242,7 +289,7 @@ function endof(s::String)
     i
 end
 
-function length(s::String)
+function length(s::Union{String,SecureString})
     cnum = 0
     @inbounds for i = 1:sizeof(s)
         cnum += !is_valid_continuation(codeunit(s, i))
@@ -250,7 +297,7 @@ function length(s::String)
     cnum
 end
 
-@noinline function slow_utf8_next(s::String, b::UInt8, i::Int, l::Int)
+@noinline function slow_utf8_next(s::Union{String,SecureString}, b::UInt8, i::Int, l::Int)
     @inbounds if is_valid_continuation(b)
         throw(UnicodeError(UTF_ERR_INVALID_INDEX, i, codeunit(s, i)))
     end
@@ -272,7 +319,7 @@ end
 # String's underlying data, which is true for valid Strings
 done(s::String, state) = state > sizeof(s)
 
-@inline function next(s::String, i::Int)
+@inline function next(s::Union{String,SecureString}, i::Int)
     # function is split into this critical fast-path
     # for pure ascii data, such as parsing numbers,
     # and a longer function that can handle any utf8 data
