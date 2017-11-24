@@ -576,39 +576,41 @@ securezero!(s::String) = unsafe_securezero!(pointer(s), sizeof(s))
 unsafe_securezero!(p::Ptr{Void}, len::Integer=1) = Ptr{Void}(unsafe_securezero!(Ptr{UInt8}(p), len))
 
 if Sys.iswindows()
-function getpass(prompt::AbstractString)
-    print(prompt)
-    flush(STDOUT)
-    p = Vector{UInt8}(uninitialized, 128) # mimic Unix getpass in ignoring more than 128-char passwords
-                          # (also avoids any potential memory copies arising from push!)
-    try
-        plen = 0
-        while true
-            c = ccall(:_getch, UInt8, ())
-            if c == 0xff || c == UInt8('\n') || c == UInt8('\r')
-                break # EOF or return
-            elseif c == 0x00 || c == 0xe0
-                ccall(:_getch, UInt8, ()) # ignore function/arrow keys
-            elseif c == UInt8('\b') && plen > 0
-                plen -= 1 # delete last character on backspace
-            elseif !iscntrl(Char(c)) && plen < 128
-                p[plen += 1] = c
+    function getpass(prompt::AbstractString)::SecureString
+        print(prompt)
+        flush(STDOUT)
+        p = Vector{UInt8}(uninitialized, 128) # mimic Unix getpass in ignoring more than 128-char passwords
+                              # (also avoids any potential memory copies arising from push!)
+        try
+            plen = 0
+            while true
+                c = ccall(:_getch, UInt8, ())
+                if c == 0xff || c == UInt8('\n') || c == UInt8('\r')
+                    break # EOF or return
+                elseif c == 0x00 || c == 0xe0
+                    ccall(:_getch, UInt8, ()) # ignore function/arrow keys
+                elseif c == UInt8('\b') && plen > 0
+                    plen -= 1 # delete last character on backspace
+                elseif !iscntrl(Char(c)) && plen < 128
+                    p[plen += 1] = c
+                end
             end
+            return unsafe_string(pointer(p), plen) # use unsafe_string rather than String(p[1:plen])
+                                                   # to be absolutely certain we never make an extra copy
+        finally
+            securezero!(p)
         end
-        return unsafe_string(pointer(p), plen) # use unsafe_string rather than String(p[1:plen])
-                                               # to be absolutely certain we never make an extra copy
-    finally
-        securezero!(p)
-    end
 
-    return ""
-end
+        return ""
+    end
 else
-getpass(prompt::AbstractString) = unsafe_string(ccall(:getpass, Cstring, (Cstring,), prompt))
+    function getpass(prompt::AbstractString)::SecureString
+        unsafe_string(ccall(:getpass, Cstring, (Cstring,), prompt))
+    end
 end
 
 """
-    prompt(message; default="", password=false) -> Nullable{String}
+    prompt(message; default="", password=false) -> Nullable{<:AbstractString}
 
 Displays the `message` then waits for user input. Input is terminated when a newline (\\n)
 is encountered or EOF (^D) character is entered on a blank line. If a `default` is provided
@@ -617,6 +619,7 @@ when the `password` keyword is `true` the characters entered by the user will no
 displayed.
 """
 function prompt(message::AbstractString; default::AbstractString="", password::Bool=false)
+    S = password ? SecureString : String
     if Sys.iswindows() && password
         error("Command line prompt not supported for password entry on windows. Use `Base.winprompt` instead")
     end
@@ -630,7 +633,7 @@ function prompt(message::AbstractString; default::AbstractString="", password::B
         isempty(uinput) && return Nullable{String}()  # Encountered an EOF
         uinput = chomp(uinput)
     end
-    Nullable{String}(isempty(uinput) ? default : uinput)
+    Nullable{S}(isempty(uinput) ? default : uinput)
 end
 
 # Windows authentication prompt
@@ -712,7 +715,7 @@ if Sys.iswindows()
         # Done.
         passbuf_ = passbuf[1:passlen[]-1]
         result = Nullable((String(transcode(UInt8, usernamebuf[1:usernamelen[]-1])),
-            String(transcode(UInt8, passbuf_))))
+            SecureString(transcode(UInt8, passbuf_))))
         securezero!(passbuf_)
         securezero!(passbuf)
 
