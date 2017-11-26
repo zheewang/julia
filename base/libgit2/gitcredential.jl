@@ -47,12 +47,12 @@ function GitCredential(cred::UserPasswordCredentials, url::AbstractString)
     return git_cred
 end
 
-function securezero!(cred::GitCredential)
-    !isnull(cred.protocol) && securezero!(unsafe_get(cred.protocol))
-    !isnull(cred.host) && securezero!(unsafe_get(cred.host))
-    !isnull(cred.path) && securezero!(unsafe_get(cred.path))
-    !isnull(cred.username) && securezero!(unsafe_get(cred.username))
-    !isnull(cred.password) && securezero!(unsafe_get(cred.password))
+function shred!(cred::GitCredential)
+    !isnull(cred.protocol) && shred!(unsafe_get(cred.protocol))
+    !isnull(cred.host) && shred!(unsafe_get(cred.host))
+    !isnull(cred.path) && shred!(unsafe_get(cred.path))
+    !isnull(cred.username) && shred!(unsafe_get(cred.username))
+    !isnull(cred.password) && shred!(unsafe_get(cred.password))
     return cred
 end
 
@@ -293,7 +293,7 @@ function approve(cfg::GitConfig, cred::UserPasswordCredentials, url::AbstractStr
         approve(helper, git_cred)
     end
 
-    securezero!(git_cred)
+    shred!(git_cred)
     nothing
 end
 
@@ -305,6 +305,6 @@ function reject(cfg::GitConfig, cred::UserPasswordCredentials, url::AbstractStri
         reject(helper, git_cred)
     end
 
-    securezero!(git_cred)
+    shred!(git_cred)
     nothing
 end

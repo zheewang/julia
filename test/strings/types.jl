@@ -271,7 +271,7 @@ end
         @test str == secure
 
         # Securely wiping the SecureString will also wipe out the original source
-        Base.securezero!(secure) === secure
+        shred!(secure) === secure
         @test secure != "foobar"
         @test str != "foobar"
     end
@@ -295,7 +295,7 @@ end
     @testset "deepcopy" begin
         secure_a = SecureString("foo")
         secure_b = deepcopy(secure_a)
-        Base.securezero!(secure_a)
+        shred!(secure_a)
 
         @test secure_a != "foo"
         @test secure_b == "foo"

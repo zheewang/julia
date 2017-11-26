@@ -190,7 +190,7 @@ function authenticate_userpass(libgit2credptr::Ptr{Ptr{Void}}, p::CredentialPayl
         # Use `deepcopy` to ensure zeroing the `git_cred` doesn't also zero the `cred`s copy
         cred.user = deepcopy(Base.get(git_cred.username, ""))
         cred.pass = deepcopy(Base.get(git_cred.password, ""))
-        securezero!(git_cred)
+        shred!(git_cred)
         revised = true
 
         p.use_git_helpers = false

@@ -453,7 +453,7 @@ function update(branch::AbstractString, upkgs::Set{String})
             end
         end
     finally
-        Base.securezero!(creds)
+        shred!(creds)
     end
     info("Computing changes...")
     resolve(reqs, avail, instd, fixed, free, upkgs)

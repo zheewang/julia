@@ -1126,7 +1126,7 @@ function objtype(obj_type::Consts.OBJECT)
     end
 end
 
-import Base.securezero!
+import Base.shred!
 
 "Abstract credentials payload"
 abstract type AbstractCredentials end
@@ -1157,9 +1157,9 @@ mutable struct UserPasswordCredentials <: AbstractCredentials
     UserPasswordCredentials(prompt_if_incorrect::Bool) = UserPasswordCredentials("","",prompt_if_incorrect)
 end
 
-function securezero!(cred::UserPasswordCredentials)
-    securezero!(cred.user)
-    securezero!(cred.pass)
+function shred!(cred::UserPasswordCredentials)
+    shred!(cred.user)
+    shred!(cred.pass)
     return cred
 end
 
@@ -1194,11 +1194,11 @@ mutable struct SSHCredentials <: AbstractCredentials
     SSHCredentials(prompt_if_incorrect::Bool) = SSHCredentials("","","","",prompt_if_incorrect)
 end
 
-function securezero!(cred::SSHCredentials)
-    securezero!(cred.user)
-    securezero!(cred.pass)
-    securezero!(cred.prvkey)
-    securezero!(cred.pubkey)
+function shred!(cred::SSHCredentials)
+    shred!(cred.user)
+    shred!(cred.pass)
+    shred!(cred.prvkey)
+    shred!(cred.pubkey)
     return cred
 end
 
@@ -1221,8 +1221,8 @@ Base.haskey(cache::CachedCredentials, cred_id) = Base.haskey(cache.cred, cred_id
 Base.getindex(cache::CachedCredentials, cred_id) = Base.getindex(cache.cred, cred_id)
 Base.get!(cache::CachedCredentials, cred_id, default) = Base.get!(cache.cred, cred_id, default)
 
-function securezero!(p::CachedCredentials)
-    foreach(securezero!, values(p.cred))
+function shred!(p::CachedCredentials)
+    foreach(shred!, values(p.cred))
     return p
 end
 
@@ -1333,7 +1333,7 @@ function approve(p::CredentialPayload; shred::Bool=true)
         approve(p.config, cred, p.url)
     end
 
-    shred && securezero!(cred)
+    shred && shred!(cred)
     nothing
 end
 
@@ -1358,6 +1358,6 @@ function reject(p::CredentialPayload; shred::Bool=true)
         reject(p.config, cred, p.url)
     end
 
-    shred && securezero!(cred)
+    shred && shred!(cred)
     nothing
 end

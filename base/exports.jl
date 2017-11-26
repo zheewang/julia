@@ -783,6 +783,7 @@ export
     show,
     showcompact,
     showerror,
+    shred!,
     split,
     sprint,
     string,

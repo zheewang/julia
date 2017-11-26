@@ -555,7 +555,7 @@ let optstring = repr(Base.JLOptions())
 end
 
 # Base.securezero! functions (#17579)
-import Base: securezero!, unsafe_securezero!
+import Base: securezero!, unsafe_securezero!, shred!
 let a = [1,2,3]
     @test securezero!(a) === a == [0,0,0]
     a[:] = 1:3
@@ -567,7 +567,7 @@ let a = [1,2,3]
 end
 let cache = Base.LibGit2.CachedCredentials()
     get!(cache, "foo", LibGit2.SSHCredentials("", "bar"))
-    securezero!(cache)
+    shred!(cache)
     @test cache["foo"].pass == "\0\0\0"
 end
 

@@ -25,9 +25,9 @@ end
     SecureString(string::AbstractString)
 
 A string where the contents will be securely wiped when garbage collected. However, it is
-considered best practise to wipe the string using `securezero!(::SecureString)` as soon as
-the secure data is no longer required. Note that when the `string` parameter is of type
-`String` then the memory of the original string will also be securely wiped.
+considered best practise to wipe the string using `shred!(::SecureString)` as soon as the
+secure data is no longer required. Note that when the `string` parameter is of type `String`
+then the memory of the original string will also be securely wiped.
 
 # Examples
 ```jldoctest
@@ -37,7 +37,7 @@ julia> str = "abc"::String
 julia> s = SecureString(str)
 "abc"
 
-julia> Base.securezero!(s)
+julia> shred!(s)
 "\0\0\0"
 
 julia> str
@@ -49,12 +49,12 @@ mutable struct SecureString <: AbstractString
 
     function SecureString(str::AbstractString)
         s = new(Vector{UInt8}(str))
-        finalizer(securezero!, s)
+        finalizer(shred!, s)
         return s
     end
 end
 
-function securezero!(s::SecureString)
+function shred!(s::SecureString)
     securezero!(s.data)
     return s
 end
