@@ -562,6 +562,9 @@ Base.require(Base, :Pkg)
     @deprecate_binding Pkg root_module(Base, :Pkg) true ", run `using Pkg` instead"
 end
 
+Base.require(Base, :SHA)
+Base.require(Base, :Pkg3)
+
 empty!(DEPOT_PATH)
 empty!(LOAD_PATH)
 
