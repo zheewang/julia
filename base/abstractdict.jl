@@ -639,9 +639,15 @@ end
 
 _oidd_nextind(a, i) = reinterpret(Int, ccall(:jl_eqtable_nextind, Csize_t, (Any, Csize_t), a, i))
 
+<<<<<<< HEAD
 start(d::IdDict) = _oidd_nextind(d.ht, 0)
 done(d::IdDict, i) = (i == -1)
 next(d::IdDict{K,V}, i) where {K, V} = (Pair{K,V}(d.ht[i+1], d.ht[i+2]), _oidd_nextind(d.ht, i+2))
+=======
+start(t::ObjectIdDict) = _oidd_nextind(t.ht, 0)
+done(t::ObjectIdDict, i=start(t)) = (i == -1)
+next(t::ObjectIdDict, i) = (Pair{Any,Any}(t.ht[i+1],t.ht[i+2]), _oidd_nextind(t.ht, i+2))
+>>>>>>> 8f7a9a6... Iterate WIP
 
 function length(d::IdDict)
     n = 0

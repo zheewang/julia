@@ -717,7 +717,7 @@ julia> isempty([1 2 3])
 false
 ```
 """
-isempty(itr) = done(itr, start(itr))
+isempty(itr) = done(itr)
 
 """
     values(iterator)

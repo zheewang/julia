@@ -460,7 +460,7 @@ end
 
 INCLUDE_STATE = 3 # include = include_relative
 
-import Base64
+#import Base64
 
 INCLUDE_STATE = 2
 
