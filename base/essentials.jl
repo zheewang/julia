@@ -769,3 +769,10 @@ ismissing(::Missing) = true
 function popfirst! end
 function peek end
 
+# Iteration
+function iterate(x, state)
+    @_inline_meta
+    done(x, state) && return nothing
+    return next(x, state)
+end
+iterate(x) = (@_inline_meta; iterate(x, start(x)))
