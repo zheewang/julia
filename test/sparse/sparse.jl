@@ -148,8 +148,8 @@ let
         @test a116 == s116
 
         p = [2, 1, 4]
-        a116[p, p] = reshape(1:9, 3, 3)
-        s116[p, p] = reshape(1:9, 3, 3)
+        a116[p, p] .= reshape(1:9, 3, 3)
+        s116[p, p] .= reshape(1:9, 3, 3)
         @test a116 == s116
     end
 end
@@ -781,7 +781,7 @@ end
     a[1:2,:] = let c = sparse(ones(2,10)); fill!(c.nzval, 0); c; end
     @test nnz(a) == 19
     @test count(!iszero, a) == 8
-    a[1:2,1:3] = let c = sparse(ones(2,3)); c[1,2] = c[2,1] = c[2,2] = 0; c; end
+    a[1:2,1:3] .= (let c = sparse(ones(2,3)); c[1,2] = c[2,1] = c[2,2] = 0; c; end)
     @test nnz(a) == 20
     @test count(!iszero, a) == 11
 

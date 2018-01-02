@@ -2396,7 +2396,7 @@ function _spsetnz_setindex!(A::SparseMatrixCSC{Tv}, x::Tv,
                     resize!(nzvalA, nnzA)
                 end
                 r = rowidx:(rowidx+nincl-1)
-                rowvalA[r] = I
+                rowvalA[r] .= I
                 nzvalA[r] = x
                 rowidx += nincl
                 nadd += nincl
@@ -2441,7 +2441,7 @@ function _spsetnz_setindex!(A::SparseMatrixCSC{Tv}, x::Tv,
                                 resize!(nzvalA, nnzA)
                             end
                             r = rowidx:(rowidx+(new_stop-new_ptr))
-                            rowvalA[r] = I[new_ptr:new_stop]
+                            rowvalA[r] .= I[new_ptr:new_stop]
                             nzvalA[r] = x
                             rowidx += length(r)
                             nadd += length(r)
@@ -2756,7 +2756,7 @@ function setindex!(A::SparseMatrixCSC, x, I::AbstractVector{<:Real})
 
             # copy from last position till current column
             if (nadd > 0)
-                colptrB[(lastcol+1):col] = colptrA[(lastcol+1):col] .+ nadd
+                colptrB[(lastcol+1):col] .= colptrA[(lastcol+1):col] .+ nadd
                 copylen = r1 - aidx
                 if copylen > 0
                     copyto!(rowvalB, bidx, rowvalA, aidx, copylen)
@@ -2812,7 +2812,7 @@ function setindex!(A::SparseMatrixCSC, x, I::AbstractVector{<:Real})
 
     # copy the rest
     @inbounds if (nadd > 0)
-        colptrB[(lastcol+1):end] = colptrA[(lastcol+1):end] .+ nadd
+        colptrB[(lastcol+1):end] .= colptrA[(lastcol+1):end] .+ nadd
         r1 = colptrA[end]-1
         copylen = r1 - aidx + 1
         if copylen > 0
@@ -3091,9 +3091,9 @@ function blkdiag(X::SparseMatrixCSC...)
     nX_sofar = 0
     mX_sofar = 0
     for i = 1 : num
-        colptr[(1 : nX[i] + 1) .+ nX_sofar] = X[i].colptr .+ nnz_sofar
-        rowval[(1 : nnzX[i]) .+ nnz_sofar] = X[i].rowval .+ mX_sofar
-        nzval[(1 : nnzX[i]) .+ nnz_sofar] = X[i].nzval
+        colptr[(1 : nX[i] + 1) .+ nX_sofar] .= X[i].colptr .+ nnz_sofar
+        rowval[(1 : nnzX[i]) .+ nnz_sofar] .= X[i].rowval .+ mX_sofar
+        nzval[(1 : nnzX[i]) .+ nnz_sofar] .= X[i].nzval
         nnz_sofar += nnzX[i]
         nX_sofar += nX[i]
         mX_sofar += mX[i]
@@ -3246,8 +3246,8 @@ function spdiagm_internal(kv::Pair{<:Integer,<:AbstractVector}...)
             col = 0
         end
         r = 1+i:numel+i
-        I[r] = row+1:row+numel
-        J[r] = col+1:col+numel
+        I[r] .= row+1:row+numel
+        J[r] .= col+1:col+numel
         copyto!(view(V, r), vect)
         i += numel
     end

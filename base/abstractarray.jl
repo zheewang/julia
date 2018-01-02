@@ -1064,7 +1064,7 @@ end
 function get!(X::AbstractArray{T}, A::AbstractArray, I::Union{AbstractRange,AbstractVector{Int}}, default::T) where T
     # Linear indexing
     ind = findin(I, 1:length(A))
-    X[ind] = A[I[ind]]
+    X[ind] .= A[I[ind]]
     X[1:first(ind)-1] = default
     X[last(ind)+1:length(X)] = default
     X
@@ -1075,7 +1075,7 @@ get(A::AbstractArray, I::AbstractRange, default) = get!(similar(A, typeof(defaul
 function get!(X::AbstractArray{T}, A::AbstractArray, I::RangeVecIntList, default::T) where T
     fill!(X, default)
     dst, src = indcopy(size(A), I)
-    X[dst...] = A[src...]
+    X[dst...] .= A[src...]
     X
 end
 
@@ -1162,7 +1162,7 @@ function typed_hcat(::Type{T}, A::AbstractVecOrMat...) where T
         for k=1:nargs
             Ak = A[k]
             p1 = pos+(isa(Ak,AbstractMatrix) ? size(Ak, 2) : 1)-1
-            B[:, pos:p1] = Ak
+            B[:, pos:p1] .= Ak
             pos = p1+1
         end
     end
@@ -1463,7 +1463,7 @@ function typed_hvcat(::Type{T}, rows::Tuple{Vararg{Int}}, as::AbstractVecOrMat..
             if c-1+szj > nc
                 throw(ArgumentError("block row $(i) has mismatched number of columns (expected $nc, got $(c-1+szj))"))
             end
-            out[r:r-1+szi, c:c-1+szj] = Aj
+            out[r:r-1+szi, c:c-1+szj] .= Aj
             c += szj
         end
         if c != nc+1
@@ -1800,9 +1800,9 @@ function mapslices(f, A::AbstractArray, dims::AbstractVector)
     end
     nextra = max(0, length(dims)-ndims(r1))
     if eltype(Rsize) == Int
-        Rsize[dims] = [size(r1)..., ntuple(d->1, nextra)...]
+        Rsize[dims] .= [size(r1)..., ntuple(d->1, nextra)...]
     else
-        Rsize[dims] = [axes(r1)..., ntuple(d->OneTo(1), nextra)...]
+        Rsize[dims] .= [axes(r1)..., ntuple(d->OneTo(1), nextra)...]
     end
     R = similar(r1, tuple(Rsize...,))
 
@@ -1811,7 +1811,7 @@ function mapslices(f, A::AbstractArray, dims::AbstractVector)
         ridx[d] = axes(R,d)
     end
 
-    R[ridx...] = r1
+    R[ridx...] .= r1
 
     nidx = length(otherdims)
     indices = Iterators.drop(CartesianIndices(itershape), 1)
@@ -1825,7 +1825,7 @@ end
         for I in indices # skip the first element, we already handled it
             replace_tuples!(nidx, idx, ridx, otherdims, I)
             _unsafe_getindex!(Aslice, A, idx...)
-            R[ridx...] = f(Aslice)
+            R[ridx...] .= f(Aslice)
         end
     else
         # we can't guarantee safety (#18524), so allocate new storage for each slice

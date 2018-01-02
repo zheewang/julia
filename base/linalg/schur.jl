@@ -221,8 +221,8 @@ Same as `ordschur` but overwrites the factorization `F`.
 """
 function ordschur!(gschur::GeneralizedSchur, select::Union{Vector{Bool},BitVector})
     _, _, α, β, _, _ = ordschur!(gschur.S, gschur.T, gschur.Q, gschur.Z, select)
-    gschur.alpha[:] = α
-    gschur.beta[:] = β
+    gschur.alpha .= α
+    gschur.beta .= β
     return gschur
 end
 

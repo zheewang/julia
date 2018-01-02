@@ -167,7 +167,7 @@ function flipdim(A::AbstractArray, d::Integer)
     let B=B # workaround #15276
         alli = [ axes(B,n) for n in 1:nd ]
         for i in indsd
-            B[[ n==d ? sd-i : alli[n] for n in 1:nd ]...] = slicedim(A, d, i)
+            B[[ n==d ? sd-i : alli[n] for n in 1:nd ]...] .= slicedim(A, d, i)
         end
     end
     return B
