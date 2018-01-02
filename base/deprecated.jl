@@ -1674,8 +1674,8 @@ function deprecate_nonscalar_indexed_assignment!(A::AbstractArray, X::AbstractAr
         depwarn("using `A[I...] = X` to implicitly broadcast the elements of `X` to many locations in `A` is deprecated. Use `A[I...] .= X` to explicitly opt-in to broadcasting.", :setindex!)
         A[I...] .= X
     else
-        depwarn("using `A[I...] = X` to implicitly broadcast the elements of `X` to many locations in `A` is deprecated. Use `A[I...] .= reshape(X, indices(view(A, I...)))` to explicitly opt-in to broadcasting.", :setindex!)
-        A[I...] .= reshape(X, indices(view(A, I...)))
+        depwarn("using `A[I...] = X` to implicitly broadcast the elements of `X` to many locations in `A` is deprecated. Use `A[I...] .= reshape(X, axes(view(A, I...)))` to explicitly opt-in to broadcasting.", :setindex!)
+        A[I...] .= reshape(X, axes(view(A, I...)))
     end
 end
 _unsafe_setindex!(::IndexStyle, A::AbstractArray, X::AbstractArray, I::Union{Real,AbstractArray}...) = deprecate_nonscalar_indexed_assignment!(A, X, I...)
