@@ -1808,7 +1808,7 @@ function mapslices(f, A::AbstractArray, dims::AbstractVector)
 
     ridx = Any[map(first, axes(R))...]
     for d in dims
-        ridx[d] = axes(R,d)
+        ridx[d] = (:)
     end
 
     R[ridx...] .= r1
@@ -1831,7 +1831,7 @@ end
         # we can't guarantee safety (#18524), so allocate new storage for each slice
         for I in indices
             replace_tuples!(nidx, idx, ridx, otherdims, I)
-            R[ridx...] = f(A[idx...])
+            R[ridx...] .= f(A[idx...])
         end
     end
 

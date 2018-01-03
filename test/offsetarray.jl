@@ -60,18 +60,18 @@ S4 = OffsetArray(view(reshape(collect(1:4*3*2), 4, 3, 2), 1:3, 1:2, :), (-1,-2,1
 @test A[:, :] == S[:, :] == A
 
 A_3_3 = OffsetArray(Matrix{Int}(uninitialized, 3,3), (-2,-1))
-A_3_3 .= reshape(1:9, 3, 3)
+A_3_3 .= reshape(1:9, -1:1, 0:2)
 for i = 1:9 @test A_3_3[i] == i end
-A_3_3[-1:1, 0:2] = reshape(1:9, 3, 3)
-for i = 1:9 @test A_3_3[i] == i end
-A_3_3[:, :] = 1:9
-for i = 1:9 @test A_3_3[i] == i end
-A_3_3[-1:1, 0:2] = 1:9
-for i = 1:9 @test A_3_3[i] == i end
-A_3_3[:] = 1:9
-for i = 1:9 @test A_3_3[i] == i end
-A_3_3[1:9] = 1:9
-for i = 1:9 @test A_3_3[i] == i end
+A_3_3[-1:1, 0:2] .= reshape(2:10, 3, 3)
+for i = 1:9 @test A_3_3[i] == i+1 end
+A_3_3[:,:] .= reshape(3:11, -1:1, 0:2)
+for i = 1:9 @test A_3_3[i] == i+2 end
+A_3_3[-1:1, 0:2] .= reshape(4:12, 3, 3)
+for i = 1:9 @test A_3_3[i] == i+3 end
+A_3_3[:] .= 5:13
+for i = 1:9 @test A_3_3[i] == i+4 end
+A_3_3[1:9] .= 6:14
+for i = 1:9 @test A_3_3[i] == i+5 end
 
 # CartesianIndexing
 @test A[CartesianIndex((0,3))] == S[CartesianIndex((0,3))] == 1
@@ -370,6 +370,7 @@ I,J,N = findnz(z)
 @test find(x->x>0, h) == [-1,1]
 @test find(x->x<0, h) == [-2,0]
 @test find(x->x==0, h) == [2]
+A_3_3 = reshape(1:9, -1:1, 0:2)
 @test mean(A_3_3) == median(A_3_3) == 5
 @test mean(x->2x, A_3_3) == 10
 @test mean(A_3_3, 1) == median(A_3_3, 1) == OffsetArray([2 5 8], (0,A_3_3.offsets[2]))
