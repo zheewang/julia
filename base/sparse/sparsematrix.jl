@@ -2483,6 +2483,7 @@ setindex!(A::SparseMatrixCSC, v::AbstractVector, I::AbstractVector{T}, J::Abstra
       setindex!(A, reshape(v, length(I), length(J)), I, J)
 
 # A[I,J] = B
+# TODO: TRANSITION TO BROADCAST!
 function setindex!(A::SparseMatrixCSC{Tv,Ti}, B::SparseMatrixCSC{Tv,Ti}, I::AbstractVector{T}, J::AbstractVector{T}) where {Tv,Ti,T<:Integer}
     if size(B,1) != length(I) || size(B,2) != length(J)
         throw(DimensionMismatch(""))

@@ -1264,7 +1264,11 @@ function _cat(A, shape::NTuple{N}, catdims, X...) where N
             end
         end
         I::NTuple{N, UnitRange{Int}} = (inds...,)
-        A[I...] .= x
+        if x isa AbstractArray
+            A[I...] .= x
+        else
+            A[I...] = x
+        end
     end
     return A
 end

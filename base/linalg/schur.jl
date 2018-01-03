@@ -135,7 +135,7 @@ Same as [`ordschur`](@ref) but overwrites the factorization `F`.
 """
 function ordschur!(schur::Schur, select::Union{Vector{Bool},BitVector})
     _, _, vals = ordschur!(schur.T, schur.Z, select)
-    schur.values[:] = vals
+    schur.values .= vals
     return schur
 end
 
