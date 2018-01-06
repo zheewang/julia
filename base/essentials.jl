@@ -527,9 +527,7 @@ function length(v::SimpleVector)
 end
 firstindex(v::SimpleVector) = 1
 lastindex(v::SimpleVector) = length(v)
-start(v::SimpleVector) = 1
-next(v::SimpleVector,i) = (v[i],i+1)
-done(v::SimpleVector,i) = (length(v) < i)
+iterate(v::SimpleVector, i=1) = length(v) < i ? nothing : (v[i], i+1)
 isempty(v::SimpleVector) = (length(v) == 0)
 axes(v::SimpleVector) = (OneTo(length(v)),)
 linearindices(v::SimpleVector) = axes(v, 1)
@@ -685,25 +683,6 @@ julia> start([4;2;3])
 function start end
 
 """
-    done(iter, state) -> Bool
-
-Test whether we are done iterating.
-
-# Examples
-```jldoctest
-julia> done(1:5, 3)
-false
-
-julia> done(1:5, 5)
-false
-
-julia> done(1:5, 6)
-true
-```
-"""
-function done end
-
-"""
     isempty(collection) -> Bool
 
 Determine whether a collection is empty (has no elements).
@@ -717,7 +696,7 @@ julia> isempty([1 2 3])
 false
 ```
 """
-isempty(itr) = done(itr)
+isempty(itr) = iterate(itr) == nothing
 
 """
     values(iterator)
