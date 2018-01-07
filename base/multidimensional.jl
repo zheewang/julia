@@ -144,8 +144,8 @@ module IteratorsMD
 
     # nextind and prevind with CartesianIndex
     function Base.nextind(a::AbstractArray{<:Any,N}, i::CartesianIndex{N}) where {N}
-        _, ni = next(CartesianIndices(axes(a)), i)
-        return ni
+        ind, _ = iterate(CartesianIndices(axes(a)), i)
+        return ind
     end
     function Base.prevind(a::AbstractArray{<:Any,N}, i::CartesianIndex{N}) where {N}
         _, ni = next(Iterators.reverse(CartesianIndices(axes(a))), i)
