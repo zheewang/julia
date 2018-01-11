@@ -65,7 +65,7 @@ for f in (:(!), :(+), :(-), :(identity), :(zero), :(one), :(oneunit),
           :(log2), :(exponent), :(sqrt), :(gamma), :(lgamma),
           :(iseven), :(ispow2), :(isfinite), :(isinf), :(isodd),
           :(isinteger), :(isreal), :(isnan), :(isempty),
-          :(iszero), :(transpose), :(float))
+          :(iszero), :(transpose), :(adjoint), :(float))
     @eval Math.$(f)(::Missing) = missing
 end
 
