@@ -696,7 +696,7 @@ julia> isempty([1 2 3])
 false
 ```
 """
-isempty(itr) = iterate(itr) == nothing
+isempty(itr) = iterate(itr) === nothing
 
 """
     values(iterator)

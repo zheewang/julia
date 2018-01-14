@@ -536,7 +536,7 @@ function collect(itr::Generator)
         return grow_to!(Vector{et}(), itr)
     else
         y = iterate(itr)
-        if y == nothing
+        if y === nothing
             return _array_for(et, itr.iter, isz)
         end
         v1, st = y
@@ -549,7 +549,7 @@ _collect(c, itr, ::EltypeUnknown, isz::SizeUnknown) =
 
 function _collect(c, itr, ::EltypeUnknown, isz::Union{HasLength,HasShape})
     y = iterate(itr)
-    if y == nothing
+    if y === nothing
         return _similar_for(c, @default_eltype(itr), itr, isz)
     end
     v1, st = y
@@ -573,7 +573,7 @@ function collect_to!(dest::AbstractArray{T}, itr, offs, st) where T
     i = offs
     while true
         y = iterate(itr, st)
-        y == nothing && break
+        y === nothing && break
         el, st = y
         S = typeof(el)
         if S === T || S <: T
@@ -1148,12 +1148,12 @@ deleteat!(a::Vector, inds::AbstractVector) = _deleteat!(a, to_indices(a, (inds,)
 function _deleteat!(a::Vector, inds)
     n = length(a)
     y = iterate(inds)
-    y == nothing && return a
+    y === nothing && return a
     (p, s) = y
     q = p+1
     while true
         y = iterate(inds, s)
-        y == nothing && break
+        y === nothing && break
         (i,s) = y
         if !(q <= i <= n)
             if i < q
@@ -2022,14 +2022,14 @@ julia> findmax([1,7,7,NaN])
 function findmax(a)
     p = pairs(a)
     y = iterate(p)
-    if y == nothing
+    if y === nothing
         throw(ArgumentError("collection must be non-empty"))
     end
     (mi, m), s = y
     i = mi
     while true
         y = iterate(p, s)
-        y == nothing && break
+        y === nothing && break
         m != m && break
         (i, ai), s = y
         if ai != ai || isless(m, ai)
@@ -2065,14 +2065,14 @@ julia> findmin([7,1,1,NaN])
 function findmin(a)
     p = pairs(a)
     y = iterate(p)
-    if y == nothing
+    if y === nothing
         throw(ArgumentError("collection must be non-empty"))
     end
     (mi, m), s = y
     i = mi
     while true
         y = iterate(p, s)
-        y == nothing && break
+        y === nothing && break
         m != m && break
         (i, ai), s = y
         if ai != ai || isless(ai, m)
@@ -2178,7 +2178,7 @@ function _sortedfindin(v, w)
     viter, witer = eachindex(v), eachindex(w)
     out  = eltype(viter)[]
     vy, wy = iterate(viter), iterate(witer)
-    if vy == nothing || wy == nothing
+    if vy === nothing || wy === nothing
         return out
     end
     viteri, i = vy
@@ -2188,14 +2188,14 @@ function _sortedfindin(v, w)
         while true
             if isless(vi, wj)
                 vy = iterate(viter, i)
-                if vy == nothing
+                if vy === nothing
                     break
                 end
                 viteri, i = vy
                 vi        = v[viteri]
             elseif isless(wj, vi)
                 wy = iterate(witer, j)
-                if wy == nothing
+                if wy === nothing
                     break
                 end
                 witerj, j = wy
@@ -2203,7 +2203,7 @@ function _sortedfindin(v, w)
             else
                 push!(out, viteri)
                 vy = iterate(viter, i)
-                if vy == nothing
+                if vy === nothing
                     break
                 end
                 # We only increment the v iterator because v can have
@@ -2294,14 +2294,14 @@ julia> filter!(isodd, Vector(1:10))
 function filter!(f, a::AbstractVector)
     idx = eachindex(a)
     y = iterate(idx)
-    y == nothing && return a
+    y === nothing && return a
     i, state = y
 
     for acurr in a
         if f(acurr)
             a[i] = acurr
             y = iterate(idx, state)
-            y == nothing && (i += 1; break)
+            y === nothing && (i += 1; break)
             i, state = y
         end
     end
