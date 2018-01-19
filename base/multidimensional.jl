@@ -653,8 +653,9 @@ end
         D = eachindex(dest)
         Dy = iterate(D)
         @inbounds @nloops $N j d->I[d] begin
-            dest[Dy[1]] = @ncall $N getindex src j
-            Dy = iterate(D, Dy[2])
+            (idx, state) = Dy::Tuple
+            dest[idx] = @ncall $N getindex src j
+            Dy = iterate(D, state)
         end
         return dest
     end
@@ -681,8 +682,9 @@ _iterable(v) = Iterators.repeated(v)
         @ncall $N setindex_shape_check X (d->idxlens[d])
         Xy = iterate(X)
         @inbounds @nloops $N i d->I_d begin
-            @ncall $N setindex! A Xy[1] i
-            Xy = iterate(X, Xy[2])
+            (val, state) = Xy::Tuple
+            @ncall $N setindex! A val i
+            Xy = iterate(X, state)
         end
         A
     end
