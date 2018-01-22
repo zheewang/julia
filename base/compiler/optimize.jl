@@ -2680,7 +2680,7 @@ function merge_value_ssa!(ctx::AllocOptContext, info, key)
     return true
 end
 
-function replace_use_expr_with!(ctx::AllocOptContext, use::ValueUse, expr,
+function replace_use_expr_with!(ctx::AllocOptContext, use::ValueUse, @nospecialize(expr),
                                 delete_old=true, update_var_use=false)
     # Not supported on ccall & expression
     oldexpr = use.expr
@@ -2848,18 +2848,18 @@ function split_disjoint_assign!(ctx::AllocOptContext, info, key)
                 continue
             end
         end
-        # see if we have a special optimization for this union-split computation
+        ## see if we have a special optimization for this union-split computation ##
+        # inlining a constant is simple to do directly
         ty = exprtype(usex, ctx.sv.src, ctx.sv.mod)
         if isa(ty, Const) && is_inlineable_constant(ty.val) && effect_free(usex, ctx.sv.src, ctx.sv.mod, false)
-            # inlining a constant is simple to do directly
             replace_use_expr_with!(ctx, use, quoted(ty.val))
             continue
         end
+        # if the type of the expression gave a Conditional constraint on ty,
+        # then we can use that decide the boolean just from the tag
         if isa(ty, Conditional) && isa(ty.var, Slot) && slot_id(ty.var) === key.first
             vtype = widenconst(ty.vtype)
             if typeintersect(vtype, widenconst(ty.elsetype)) === Union{}
-                # if the type of the expression gave a Conditional constraint on ty,
-                # then we can use that decide the boolean just from the tag
                 exprs = []
                 vars = []
                 for (t, v) in alltypes
@@ -2900,6 +2900,44 @@ function split_disjoint_assign!(ctx::AllocOptContext, info, key)
                 continue
             end
         end
+        # re-write `x = y::Union{0, 1, 2}` as an expanded conditional with split-type-assignment:
+        # `if tag === 0; x = y_0; elseif tag === 1; x = y_1; else; x = y_2; end`
+        if usex.head === :(=)
+            # @assert use.stmts[use.stmtidx] === usex "malformed ir"
+            dest_slot = usex.args[1]
+            if dest_slot isa SlotNumber
+                exprs = []
+                phi = genlabel(ctx.sv)
+                for (t, v) in alltypes
+                    v = v::SlotNumber
+                    next = genlabel(ctx.sv)
+                    new_test = newvar!(ctx.sv, Bool)
+                    new_val = Expr(:call, GlobalRef(Core, :(===)), tag_var, v.id)
+                    new_val.typ = Bool
+                    new_ex = :($new_test = $new_val)
+                    push!(exprs, new_ex)
+                    add_def(ctx.infomap, new_test, ValueDef(new_ex, exprs, length(exprs)))
+                    add_use(ctx.infomap, tag_var, ValueUse(exprs, length(exprs), new_val, 2))
+                    push!(exprs, Expr(:gotoifnot, new_test, next.label))
+                    new_ex = :($dest_slot = $v)
+                    push!(exprs, new_ex)
+                    add_def(ctx.infomap, dest_slot, ValueDef(new_ex, exprs, length(exprs)))
+                    add_use(ctx.infomap, v, ValueUse(exprs, length(exprs), new_ex, 2))
+                    push!(exprs, GotoNode(phi.label))
+                    push!(exprs, next)
+                end
+                err_ex = Expr(:call, GlobalRef(_topmod(ctx.sv), :error), "fatal error in type inference (type bound)")
+                err_ex.typ = Union{}
+                push!(exprs, err_ex)
+                push!(exprs, phi)
+                # replace old expression with new and update metadata
+                old_expr = use.stmts[use.stmtidx]
+                use.stmts[use.stmtidx] = exprs
+                ctx.changes[old_expr] = nothing
+                ctx.changes[use.stmts=>use.stmtidx] = nothing
+                continue
+            end
+        end
         # handle general split uses
         # re-write `x::Union{0, 1, 2}` as `ifelse(tag === 2, x_2, ifelse(tag === 1, x_1, x_0))`
         local slot_var
@@ -2929,6 +2967,7 @@ function split_disjoint_assign!(ctx::AllocOptContext, info, key)
                 add_use(ctx.infomap, slot_val.args[4], ValueUse(exprs, length(exprs), slot_val, 4))
             end
         end
+        # replace old expression with new and update metadata
         usex.args[use.exidx] = slot_var
         add_use(ctx.infomap, slot_var, use)
         old_expr = use.stmts[use.stmtidx]
