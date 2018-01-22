@@ -9,8 +9,8 @@ session (technically, in module `Main`), it is always present.
 
 If memory usage is your concern, you can always replace objects with ones that consume less memory.
  For example, if `A` is a gigabyte-sized array that you no longer need, you can free the memory
-with `A = 0`.  The memory will be released the next time the garbage collector runs; you can force
-this to happen with [`gc()`](@ref).
+with `A = nothing`.  The memory will be released the next time the garbage collector runs; you can force
+this to happen with [`gc()`](@ref Base.GC.gc). Moreover, an attempt to use `A` will likely result in an error, because most methods are not defined on type `Nothing`.
 
 ### How can I modify the declaration of a type in my session?
 
@@ -43,8 +43,7 @@ obj3 = MyModule.someotherfunction(obj2, c)
 
 ## Functions
 
-### I passed an argument `x` to a function, modified it inside that function, but on the outside,
-the variable `x` is still unchanged. Why?
+### I passed an argument `x` to a function, modified it inside that function, but on the outside, the variable `x` is still unchanged. Why?
 
 Suppose you call a function like this:
 
@@ -95,7 +94,7 @@ julia> x
  3
 ```
 
-Here we created a function `change_array!()`, that assigns `5` to the first element of the passed
+Here we created a function `change_array!`, that assigns `5` to the first element of the passed
 array (bound to `x` at the call site, and bound to `A` within the function). Notice that, after
 the function call, `x` is still bound to the same array, but the content of that array changed:
 the variables `A` and `x` were distinct bindings refering to the same mutable `Array` object.
@@ -195,6 +194,52 @@ c = 3::Int64
 If Julia were a language that made more liberal use of ASCII characters, the splatting operator
 might have been written as `...->` instead of `...`.
 
+### What is the return value of an assignment?
+
+The operator `=` always returns the right-hand side, therefore:
+
+```jldoctest
+julia> function threeint()
+           x::Int = 3.0
+           x # returns variable x
+       end
+threeint (generic function with 1 method)
+
+julia> function threefloat()
+           x::Int = 3.0 # returns 3.0
+       end
+threefloat (generic function with 1 method)
+
+julia> threeint()
+3
+
+julia> threefloat()
+3.0
+```
+
+and similarly:
+
+```jldoctest
+julia> function threetup()
+           x, y = [3, 3]
+           x, y # returns a tuple
+       end
+threetup (generic function with 1 method)
+
+julia> function threearr()
+           x, y = [3, 3] # returns an array
+       end
+threearr (generic function with 1 method)
+
+julia> threetup()
+(3, 3)
+
+julia> threearr()
+2-element Array{Int64,1}:
+ 3
+ 3
+```
+
 ## Types, type declarations, and constructors
 
 ### [What does "type-stable" mean?](@id man-type-stability)
@@ -214,9 +259,10 @@ julia> function unstable(flag::Bool)
 unstable (generic function with 1 method)
 ```
 
-It returns either an `Int` or a `Float64` depending on the value of its argument. Since Julia
-can't predict the return type of this function at compile-time, any computation that uses it will
-have to guard against both types possibly occurring, making generation of fast machine code difficult.
+It returns either an `Int` or a [`Float64`](@ref) depending on the value of its argument.
+Since Julia can't predict the return type of this function at compile-time, any computation
+that uses it will have to guard against both types possibly occurring, making generation of
+fast machine code difficult.
 
 ### [Why does Julia give a `DomainError` for certain seemingly-sensible operations?](@id faq-domain-errors)
 
@@ -224,26 +270,18 @@ Certain operations make mathematical sense but result in errors:
 
 ```jldoctest
 julia> sqrt(-2.0)
-ERROR: DomainError:
-sqrt will only return a complex result if called with a complex argument. Try sqrt(complex(x)).
+ERROR: DomainError with -2.0:
+sqrt will only return a complex result if called with a complex argument. Try sqrt(Complex(x)).
 Stacktrace:
- [1] sqrt(::Float64) at ./math.jl:422
-
-julia> 2^-5
-ERROR: DomainError:
-Cannot raise an integer x to a negative power -n.
-Make x a float by adding a zero decimal (e.g. 2.0^-n instead of 2^-n), or write 1/x^n, float(x)^-n, or (x//1)^-n.
-Stacktrace:
- [1] power_by_squaring(::Int64, ::Int64) at ./intfuncs.jl:170
- [2] literal_pow(::Base.#^, ::Int64, ::Type{Val{-5}}) at ./intfuncs.jl:205
+[...]
 ```
 
 This behavior is an inconvenient consequence of the requirement for type-stability.  In the case
-of [`sqrt()`](@ref), most users want `sqrt(2.0)` to give a real number, and would be unhappy if
-it produced the complex number `1.4142135623730951 + 0.0im`.  One could write the [`sqrt()`](@ref)
+of [`sqrt`](@ref), most users want `sqrt(2.0)` to give a real number, and would be unhappy if
+it produced the complex number `1.4142135623730951 + 0.0im`.  One could write the [`sqrt`](@ref)
 function to switch to a complex-valued output only when passed a negative number (which is what
-[`sqrt()`](@ref) does in some other languages), but then the result would not be [type-stable](@ref man-type-stability)
-and the [`sqrt()`](@ref) function would have poor performance.
+[`sqrt`](@ref) does in some other languages), but then the result would not be [type-stable](@ref man-type-stability)
+and the [`sqrt`](@ref) function would have poor performance.
 
 In these and other cases, you can get the result you want by choosing an *input type* that conveys
 your willingness to accept an *output type* in which the result can be represented:
@@ -251,9 +289,6 @@ your willingness to accept an *output type* in which the result can be represent
 ```jldoctest
 julia> sqrt(-2.0+0im)
 0.0 + 1.4142135623730951im
-
-julia> 2.0^-5
-0.03125
 ```
 
 ### Why does Julia use native machine integer arithmetic?
@@ -281,7 +316,7 @@ ideal for a high-level programming language to expose this to the user. For nume
 efficiency and transparency are at a premium, however, the alternatives are worse.
 
 One alternative to consider would be to check each integer operation for overflow and promote
-results to bigger integer types such as `Int128` or [`BigInt`](@ref) in the case of overflow.
+results to bigger integer types such as [`Int128`](@ref) or [`BigInt`](@ref) in the case of overflow.
 Unfortunately, this introduces major overhead on every integer operation (think incrementing a
 loop counter) – it requires emitting code to perform run-time overflow checks after arithmetic
 instructions and branches to handle potential overflows. Worse still, this would cause every computation
@@ -391,7 +426,7 @@ arithmetic. For example, since Julia integers use normal machine integer arithme
 to aggressively optimize simple little functions like `f(k) = 5k-1`. The machine code for this
 function is just this:
 
-```julia
+```julia-repl
 julia> code_native(f, Tuple{Int})
   .text
 Filename: none
@@ -407,7 +442,7 @@ Source line: 1
 The actual body of the function is a single `leaq` instruction, which computes the integer multiply
 and add at once. This is even more beneficial when `f` gets inlined into another function:
 
-```julia
+```julia-repl
 julia> function g(k, n)
            for i = 1:n
                k = f(k)
@@ -442,7 +477,7 @@ L26:
 Since the call to `f` gets inlined, the loop body ends up being just a single `leaq` instruction.
 Next, consider what happens if we make the number of loop iterations fixed:
 
-```julia
+```julia-repl
 julia> function g(k)
            for i = 1:10
                k = f(k)
@@ -485,7 +520,7 @@ to checked integer arithmetic in Julia, but for now, we have to live with the po
 As the error states, an immediate cause of an `UndefVarError` on a remote node is that a binding
 by that name does not exist. Let us explore some of the possible causes.
 
-```julia
+```julia-repl
 julia> module Foo
            foo() = remotecall_fetch(x->x, 2, "Hello")
        end
@@ -493,6 +528,7 @@ julia> module Foo
 julia> Foo.foo()
 ERROR: On worker 2:
 UndefVarError: Foo not defined
+Stacktrace:
 [...]
 ```
 
@@ -502,7 +538,7 @@ an `UndefVarError` is thrown.
 Globals under modules other than `Main` are not serialized by value to the remote node. Only a reference is sent.
 Functions which create global bindings (except under `Main`) may cause an `UndefVarError` to be thrown later.
 
-```julia
+```julia-repl
 julia> @everywhere module Foo
            function foo()
                global gvar = "Hello"
@@ -513,6 +549,7 @@ julia> @everywhere module Foo
 julia> Foo.foo()
 ERROR: On worker 2:
 UndefVarError: gvar not defined
+Stacktrace:
 [...]
 ```
 
@@ -522,25 +559,26 @@ a new global binding `gvar` on the local node, but this was not found on node 2 
 Note that this does not apply to globals created under module `Main`. Globals under module `Main` are serialized
 and new bindings created under `Main` on the remote node.
 
-```julia
+```julia-repl
 julia> gvar_self = "Node1"
 "Node1"
 
 julia> remotecall_fetch(()->gvar_self, 2)
 "Node1"
 
-julia> remotecall_fetch(whos, 2)
-	From worker 2:	                          Base  41762 KB     Module
-	From worker 2:	                          Core  27337 KB     Module
-	From worker 2:	                           Foo   2477 bytes  Module
-	From worker 2:	                          Main  46191 KB     Module
-	From worker 2:	                     gvar_self     13 bytes  String
+julia> remotecall_fetch(varinfo, 2)
+name          size summary
+––––––––– –––––––– –––––––
+Base               Module
+Core               Module
+Main               Module
+gvar_self 13 bytes String
 ```
 
 This does not apply to `function` or `type` declarations. However, anonymous functions bound to global
 variables are serialized as can be seen below.
 
-```julia
+```julia-repl
 julia> bar() = 1
 bar (generic function with 1 method)
 
@@ -558,21 +596,18 @@ julia> remotecall_fetch(anon_bar, 2)
 
 ## Packages and Modules
 
-### What is the difference between "using" and "importall"?
+### What is the difference between "using" and "import"?
 
 There is only one difference, and on the surface (syntax-wise) it may seem very minor. The difference
-between `using` and `importall` is that with `using` you need to say `function Foo.bar(..` to
-extend module Foo's function bar with a new method, but with `importall` or `import Foo.bar`,
+between `using` and `import` is that with `using` you need to say `function Foo.bar(..` to
+extend module Foo's function bar with a new method, but with `import Foo.bar`,
 you only need to say `function bar(...` and it automatically extends module Foo's function bar.
-
-If you use `importall`, then `function Foo.bar(...` and `function bar(...` become equivalent.
-If you use `using`, then they are different.
 
 The reason this is important enough to have been given separate syntax is that you don't want
 to accidentally extend a function that you didn't know existed, because that could easily cause
 a bug. This is most likely to happen with a method that takes a common type like a string or integer,
 because both you and the other module could define a method to handle such a common type. If you
-use `importall`, then you'll replace the other module's implementation of `bar(s::AbstractString)`
+use `import`, then you'll replace the other module's implementation of `bar(s::AbstractString)`
 with your new implementation, which could easily do something completely different (and break
 all/many future usages of the other functions in module Foo that depend on calling bar).
 
@@ -580,26 +615,31 @@ all/many future usages of the other functions in module Foo that depend on calli
 
 ### How does "null" or "nothingness" work in Julia?
 
-Unlike many languages (for example, C and Java), Julia does not have a "null" value. When a reference
-(variable, object field, or array element) is uninitialized, accessing it will immediately throw
-an error. This situation can be detected using the `isdefined` function.
+Unlike many languages (for example, C and Java), Julia objects cannot be "null" by default.
+When a reference (variable, object field, or array element) is uninitialized, accessing it
+will immediately throw an error. This situation can be detected using the
+[`isdefined`](@ref) or [`isassigned`](@ref Base.isassigned) functions.
 
 Some functions are used only for their side effects, and do not need to return a value. In these
 cases, the convention is to return the value `nothing`, which is just a singleton object of type
-`Void`. This is an ordinary type with no fields; there is nothing special about it except for
+`Nothing`. This is an ordinary type with no fields; there is nothing special about it except for
 this convention, and that the REPL does not print anything for it. Some language constructs that
 would not otherwise have a value also yield `nothing`, for example `if false; end`.
 
-For situations where a value exists only sometimes (for example, missing statistical data), it
-is best to use the `Nullable{T}` type, which allows specifying the type of a missing value.
+For situations where a value `x` of type `T` exists only sometimes, the `Union{T, Nothing}`
+type can be used. If the value itself can be `nothing` (notably, when `T` is `Any`),
+the `Union{Some{T}, Nothing}` type is more appropriate since `x == nothing` then indicates
+the absence of a value, and `x == Some(nothing)` indicates the presence of a value equal
+to `nothing`.
+
+To represent missing data in the statistical sense (`NA` in R or `NULL` in SQL), use the
+[`missing`](@ref) object. See the [`Missing Values`](@ref missing) section for more details.
 
 The empty tuple (`()`) is another form of nothingness. But, it should not really be thought of
 as nothing but rather a tuple of zero values.
 
-In code written for Julia prior to version 0.4 you may occasionally see `None`, which is quite
-different. It is the empty (or "bottom") type, a type with no values and no subtypes (except itself).
-This is now written as `Union{}` (an empty union type). You will generally not need to use this
-type.
+The empty (or "bottom") type, written as `Union{}` (an empty union type), is a type with
+no values and no subtypes (except itself). You will generally not need to use this type.
 
 ## Memory
 
@@ -677,7 +717,7 @@ You can lock your writes with a `ReentrantLock` like this:
 
 ```jldoctest
 julia> l = ReentrantLock()
-ReentrantLock(Nullable{Task}(), Condition(Any[]), 0)
+ReentrantLock(nothing, Condition(Any[]), 0)
 
 julia> @sync for i in 1:3
            @async begin

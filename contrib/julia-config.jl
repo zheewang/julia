@@ -1,22 +1,20 @@
 #!/usr/bin/env julia
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
+import Libdl
+
 const options = [
     "--cflags",
     "--ldflags",
-    "--ldlibs"
+    "--ldlibs",
+    "--allflags"
 ];
 
 threadingOn() = ccall(:jl_threading_enabled, Cint, ()) != 0
 
 function shell_escape(str)
-    str = replace(str, "'", "'\''")
+    str = replace(str, "'" => "'\''")
     return "'$str'"
-end
-
-function imagePath()
-    opts = Base.JLOptions()
-    return unsafe_string(opts.image_file)
 end
 
 function libDir()
@@ -27,17 +25,17 @@ function libDir()
     end
 end
 
-private_libDir() = abspath(JULIA_HOME, Base.PRIVATE_LIBDIR)
+private_libDir() = abspath(Sys.BINDIR, Base.PRIVATE_LIBDIR)
 
 function includeDir()
-    return abspath(JULIA_HOME, Base.INCLUDEDIR, "julia")
+    return abspath(Sys.BINDIR, Base.INCLUDEDIR, "julia")
 end
 
 function ldflags()
     fl = "-L$(shell_escape(libDir()))"
-    if is_windows()
+    if Sys.iswindows()
         fl = fl * " -Wl,--stack,8388608"
-    elseif is_linux()
+    elseif Sys.islinux()
         fl = fl * " -Wl,--export-dynamic"
     end
     return fl
@@ -49,7 +47,7 @@ function ldlibs()
     else
         "julia"
     end
-    if is_unix()
+    if Sys.isunix()
         return "-Wl,-rpath,$(shell_escape(libDir())) -Wl,-rpath,$(shell_escape(private_libDir())) -l$libname"
     else
         return "-l$libname -lopenlibm"
@@ -64,10 +62,14 @@ function cflags()
     if threadingOn()
         print(flags, " -DJULIA_ENABLE_THREADING=1")
     end
-    if is_unix()
+    if Sys.isunix()
         print(flags, " -fPIC")
     end
     return String(take!(flags))
+end
+
+function allflags()
+    return "$(cflags()) $(ldflags()) $(ldlibs())"
 end
 
 function check_args(args)
@@ -87,6 +89,8 @@ function main()
             println(cflags())
         elseif args == "--ldlibs"
             println(ldlibs())
+        elseif args == "--allflags"
+            println(allflags())
         end
     end
 end

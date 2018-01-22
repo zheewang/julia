@@ -1,6 +1,6 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-using Base.Test
+using Test
 
 """
 Helper to walk the AST and call a function on every node.
@@ -110,4 +110,16 @@ function read21311()
 end
 let a = read21311()
     @test a[] == 1
+end
+
+@testset "issue #19122: [no]inline of short func. def. with return type annotation" begin
+    exf19122 = @macroexpand(@inline f19122()::Bool = true)
+    exg19122 = @macroexpand(@noinline g19122()::Bool = true)
+    @test exf19122.args[2].args[1].args[1] == :inline
+    @test exg19122.args[2].args[1].args[1] == :noinline
+
+    @inline f19122()::Bool = true
+    @noinline g19122()::Bool = true
+    @test f19122()
+    @test g19122()
 end

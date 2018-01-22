@@ -9,6 +9,7 @@ Transform an array to its complex conjugate in-place.
 
 See also [`conj`](@ref).
 
+# Examples
 ```jldoctest
 julia> A = [1+im 2-im; 2+2im 3+im]
 2×2 Array{Complex{Int64},2}:
@@ -39,7 +40,14 @@ for f in (:+, :-)
     end
 end
 
-for f in (:/, :\, :*, :+, :-)
+function +(A::Array, Bs::Array...)
+    for B in Bs
+        promote_shape(A, B) # check size compatibility
+    end
+    broadcast(+, A, Bs...)
+end
+
+for f in (:/, :\, :*)
     if f != :/
         @eval ($f)(A::Number, B::AbstractArray) = broadcast($f, A, B)
     end
@@ -92,7 +100,7 @@ function flipdim(A::Array{T}, d::Integer) where T
                 for j=0:stride:(N-stride)
                     offs = j + 1 + (i-1)*M
                     boffs = j + 1 + (ri-1)*M
-                    copy!(B, boffs, A, offs, M)
+                    copyto!(B, boffs, A, offs, M)
                 end
             end
         else
@@ -116,6 +124,7 @@ end
 
 Rotate matrix `A` left 90 degrees.
 
+# Examples
 ```jldoctest
 julia> a = [1 2; 3 4]
 2×2 Array{Int64,2}:
@@ -129,10 +138,10 @@ julia> rotl90(a)
 ```
 """
 function rotl90(A::AbstractMatrix)
-    ind1, ind2 = indices(A)
+    ind1, ind2 = axes(A)
     B = similar(A, (ind2,ind1))
     n = first(ind2)+last(ind2)
-    for i=indices(A,1), j=ind2
+    for i=axes(A,1), j=ind2
         B[n-j,i] = A[i,j]
     end
     return B
@@ -143,6 +152,7 @@ end
 
 Rotate matrix `A` right 90 degrees.
 
+# Examples
 ```jldoctest
 julia> a = [1 2; 3 4]
 2×2 Array{Int64,2}:
@@ -156,10 +166,10 @@ julia> rotr90(a)
 ```
 """
 function rotr90(A::AbstractMatrix)
-    ind1, ind2 = indices(A)
+    ind1, ind2 = axes(A)
     B = similar(A, (ind2,ind1))
     m = first(ind1)+last(ind1)
-    for i=ind1, j=indices(A,2)
+    for i=ind1, j=axes(A,2)
         B[j,m-i] = A[i,j]
     end
     return B
@@ -169,6 +179,7 @@ end
 
 Rotate matrix `A` 180 degrees.
 
+# Examples
 ```jldoctest
 julia> a = [1 2; 3 4]
 2×2 Array{Int64,2}:
@@ -183,7 +194,7 @@ julia> rot180(a)
 """
 function rot180(A::AbstractMatrix)
     B = similar(A)
-    ind1, ind2 = indices(A,1), indices(A,2)
+    ind1, ind2 = axes(A,1), axes(A,2)
     m, n = first(ind1)+last(ind1), first(ind2)+last(ind2)
     for j=ind2, i=ind1
         B[m-i,n-j] = A[i,j]
@@ -196,6 +207,7 @@ end
 Rotate matrix `A` left 90 degrees an integer `k` number of times.
 If `k` is zero or a multiple of four, this is equivalent to a `copy`.
 
+# Examples
 ```jldoctest
 julia> a = [1 2; 3 4]
 2×2 Array{Int64,2}:
@@ -235,6 +247,7 @@ end
 Rotate matrix `A` right 90 degrees an integer `k` number of times. If `k` is zero or a
 multiple of four, this is equivalent to a `copy`.
 
+# Examples
 ```jldoctest
 julia> a = [1 2; 3 4]
 2×2 Array{Int64,2}:
@@ -269,6 +282,7 @@ rotr90(A::AbstractMatrix, k::Integer) = rotl90(A,-k)
 Rotate matrix `A` 180 degrees an integer `k` number of times.
 If `k` is even, this is equivalent to a `copy`.
 
+# Examples
 ```jldoctest
 julia> a = [1 2; 3 4]
 2×2 Array{Int64,2}:

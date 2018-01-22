@@ -1,9 +1,9 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 # intrinsic functions
-const curmod = current_module()
-const curmod_name = fullname(curmod)
-const curmod_prefix = "$(["$m." for m in curmod_name]...)"
+
+# For curmod_*
+include("testenv.jl")
 
 # bits types
 @test isa((() -> Core.Intrinsics.bitcast(Ptr{Int8}, 0))(), Ptr{Int8})
@@ -69,7 +69,7 @@ compiled_addf(x, y) = Core.Intrinsics.add_float(x, y)
 @test_throws ErrorException compiled_addf(im, im)
 @test_throws ErrorException compiled_addf(true, true)
 
-function compiled_conv{T}(::Type{T}, x)
+function compiled_conv(::Type{T}, x) where T
     t = Core.Intrinsics.trunc_int(T, x)
     z = Core.Intrinsics.zext_int(typeof(x), t)
     s = Core.Intrinsics.sext_int(typeof(x), t)
@@ -82,3 +82,11 @@ end
 @test compiled_conv(UInt32, UInt64(0xC000_BA98_8765_4321)) ==
     (0x87654321, 0x0000000087654321, 0xffffffff87654321, 0xc005d4c4, 0xc000ba9880000000)
 @test_throws ErrorException compiled_conv(Bool, im)
+
+let f = Core.Intrinsics.ashr_int
+    @test f(Int8(-17), 1) == -9
+    @test f(Int32(-1), 33) == -1
+    @test f(Int32(-1), -1) == -1
+    @test f(Int32(-1), -10) == -1
+    @test f(Int32(2), -1) == 0
+end

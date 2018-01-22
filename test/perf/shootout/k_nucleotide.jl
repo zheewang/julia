@@ -40,7 +40,7 @@ function isless(x::KNuc, y::KNuc)
 end
 
 function sorted_array(m::Dict{AbstractString, Int})
-    kn = Array{KNuc}(length(m))
+    kn = Vector{KNuc}(uninitialized, length(m))
     i = 1
     for elem in m
         kn[i] = KNuc(elem...)
@@ -65,7 +65,7 @@ function k_nucleotide(infile="knucleotide-input.txt")
     for line in eachline(input)
         startswith(line, ">THREE ") && break
     end
-    data = collect(readstring(input))
+    data = collect(read(input, String))
     # delete the newlines and convert to upper case
     i, j = 1, 1
     while i <= length(data)

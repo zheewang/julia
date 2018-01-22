@@ -1,6 +1,6 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-using Base.llvmcall
+using Base: llvmcall
 
 #function add1234(x::Tuple{Int32,Int32,Int32,Int32})
 #    llvmcall("""%3 = add <4 x i32> %1, %0
@@ -48,8 +48,8 @@ end
 
 # Test whether llvmcall escapes the function name correctly
 baremodule PlusTest
-    using Base.llvmcall
-    using Base.Test
+    using Base: llvmcall
+    using Test
     using Base
 
     function +(x::Int32, y::Int32)
@@ -139,7 +139,7 @@ function confuse_declname_parsing()
     llvmcall(
         ("""declare i64 addrspace(0)* @foobar()""",
          """ret void"""),
-    Void, Tuple{})
+    Cvoid, Tuple{})
 end
 confuse_declname_parsing()
 
@@ -155,9 +155,10 @@ end
 call_jl_errno()
 
 module ObjLoadTest
-    using Base: Test, llvmcall, @ccallable
+    using Base: llvmcall, @ccallable
+    using Test
     didcall = false
-    @ccallable Void function jl_the_callback()
+    @ccallable Cvoid function jl_the_callback()
         global didcall
         didcall = true
         nothing
@@ -170,14 +171,14 @@ module ObjLoadTest
         """
         call void @jl_the_callback()
         ret void
-        """),Void,Tuple{})
+        """),Cvoid,Tuple{})
     end
     do_the_call()
     @test didcall
 end
 
 # Test for proper parenting
-if VersionNumber(Base.libllvm_version) >= v"3.6" # llvm 3.6 changed the syntax for a gep, so just ignore this test on older versions
+if Base.libllvm_version >= v"3.6" # llvm 3.6 changed the syntax for a gep, so just ignore this test on older versions
     local foo
     function foo()
         # this IR snippet triggers an optimization relying
@@ -185,9 +186,26 @@ if VersionNumber(Base.libllvm_version) >= v"3.6" # llvm 3.6 changed the syntax f
         Base.llvmcall(
          """%1 = getelementptr i64, i64* null, i64 1
             ret void""",
-        Void, Tuple{})
+        Cvoid, Tuple{})
     end
     code_llvm(DevNull, foo, ())
 else
-    println("INFO: skipping gep parentage test on llvm < 3.6")
+    @info "Skipping gep parentage test on llvm < 3.6"
+end
+
+module CcallableRetTypeTest
+    using Base: llvmcall, @ccallable
+    using Test
+    @ccallable function jl_test_returns_float()::Float64
+        return 42
+    end
+    function do_the_call()
+        llvmcall(
+        (""" declare double @jl_test_returns_float()""",
+        """
+        %1 = call double @jl_test_returns_float()
+        ret double %1
+        """),Float64,Tuple{})
+    end
+    @test do_the_call() === 42.0
 end

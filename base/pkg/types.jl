@@ -72,7 +72,7 @@ function VersionSet(versions::Vector{VersionNumber})
     else
         isodd(length(versions)) && push!(versions, typemax(VersionNumber))
         while !isempty(versions)
-            push!(intervals, VersionInterval(shift!(versions), shift!(versions)))
+            push!(intervals, VersionInterval(popfirst!(versions), popfirst!(versions)))
         end
     end
     VersionSet(intervals)
@@ -82,8 +82,8 @@ VersionSet(versions::VersionNumber...) = VersionSet(VersionNumber[versions...])
 const empty_versionset = VersionSet(VersionInterval[])
 
 # Windows console doesn't like Unicode
-const _empty_symbol = @static is_windows() ? "empty" : "∅"
-const _union_symbol = @static is_windows() ? " or " : " ∪ "
+const _empty_symbol = @static Sys.iswindows() ? "empty" : "∅"
+const _union_symbol = @static Sys.iswindows() ? " or " : " ∪ "
 show(io::IO, s::VersionSet) = isempty(s) ? print(io, _empty_symbol) :
                                            join(io, s.intervals, _union_symbol)
 isempty(s::VersionSet) = all(isempty, s.intervals)
@@ -102,7 +102,7 @@ function union!(A::VersionSet, B::VersionSet)
     for intB in B.intervals
         lB, uB = intB.lower, intB.upper
         k0 = findfirst(i->(i.upper > lB), ivals)
-        if k0 == 0
+        if k0 === nothing
             push!(ivals, intB)
             continue
         end
@@ -124,7 +124,7 @@ end
 
 ==(A::VersionSet, B::VersionSet) = A.intervals == B.intervals
 hash(s::VersionSet, h::UInt) = hash(s.intervals, h + (0x2fd2ca6efa023f44 % UInt))
-deepcopy_internal(vs::VersionSet, ::ObjectIdDict) = copy(vs)
+deepcopy_internal(vs::VersionSet, ::IdDict) = copy(vs)
 
 const Requires = Dict{String,VersionSet}
 

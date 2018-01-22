@@ -18,13 +18,13 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
 #include <signal.h>
 #include <errno.h>
 #include <inttypes.h>
 #include "julia.h"
 #include "julia_internal.h"
 #include "threading.h"
+#include "julia_assert.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -148,49 +148,49 @@ extern size_t jl_page_size;
 jl_datatype_t *jl_task_type;
 
 #ifdef COPY_STACKS
-#if (defined(_CPU_X86_64_) || defined(_CPU_X86_) || defined(_CPU_AARCH64_)) && !defined(_COMPILER_MICROSOFT_)
+#if (defined(_CPU_X86_64_) || defined(_CPU_X86_) || defined(_CPU_AARCH64_) || defined(_CPU_ARM_)) && !defined(_COMPILER_MICROSOFT_)
 #define ASM_COPY_STACKS
 #endif
 
-static void NOINLINE save_stack(jl_ptls_t ptls, jl_task_t *t)
+static void NOINLINE save_stack(jl_ptls_t ptls, jl_task_t *lastt, jl_task_t **pt)
 {
-    if (t->state == done_sym || t->state == failed_sym)
+    if (lastt->state == done_sym || lastt->state == failed_sym)
         return;
     char *frame_addr = (char*)jl_get_frame_addr();
     char *stackbase = (char*)ptls->stackbase;
     size_t nb = stackbase > frame_addr ? stackbase - frame_addr : 0;
     char *buf;
-    if (t->stkbuf == NULL || t->bufsz < nb) {
+    if (lastt->stkbuf == NULL || lastt->bufsz < nb) {
         buf = (char*)jl_gc_alloc_buf(ptls, nb);
-        t->stkbuf = buf;
-        t->bufsz = nb;
+        lastt->stkbuf = buf;
+        lastt->bufsz = nb;
     }
     else {
-        buf = (char*)t->stkbuf;
+        buf = (char*)lastt->stkbuf;
     }
-    t->ssize = nb;
+    lastt->ssize = nb;
+    *pt = lastt; // clear the gc-root for the target task before copying the stack for saving
     memcpy(buf, frame_addr, nb);
     // this task's stack could have been modified after
     // it was marked by an incremental collection
     // move the barrier back instead of walking it again here
-    jl_gc_wb_back(t);
+    jl_gc_wb_back(lastt);
 }
 
-static void NOINLINE restore_stack(jl_ptls_t ptls, jl_task_t *t,
-                                   jl_jmp_buf *where, char *p)
+static void NOINLINE restore_stack(jl_ptls_t ptls, char *p)
 {
+    jl_task_t *t = ptls->current_task;
     char *_x = (char*)ptls->stackbase - t->ssize;
     if (!p) {
         p = _x;
         if ((char*)&_x > _x) {
             p = (char*)alloca((char*)&_x - _x);
         }
-        restore_stack(ptls, t, where, p);
+        restore_stack(ptls, p); // pass p to ensure the compiler can't tailcall this
     }
-    ptls->jmp_target = where;
     assert(t->stkbuf != NULL);
-    memcpy(_x, t->stkbuf, t->ssize);
-    jl_longjmp(*ptls->jmp_target, 1);
+    memcpy(_x, t->stkbuf, t->ssize); // destroys all but the current stackframe
+    jl_longjmp(t->ctx, 1);
 }
 #endif
 
@@ -218,7 +218,8 @@ static void JL_NORETURN finish_task(jl_task_t *t, jl_value_t *resultval)
         // For now, only thread 0 runs the task scheduler.
         // The others return to the thread loop
         ptls->root_task->result = jl_nothing;
-        jl_switchto(ptls->root_task);
+        jl_task_t *task = ptls->root_task;
+        jl_switchto(&task);
         gc_debug_critical_error();
         abort();
     }
@@ -245,7 +246,7 @@ static void record_backtrace(void)
     ptls->bt_size = rec_backtrace(ptls->bt_data, JL_MAX_BT_SIZE);
 }
 
-static void NOINLINE JL_NORETURN start_task(void)
+static void NOINLINE JL_NORETURN JL_USED_FUNC start_task(void)
 {
     jl_ptls_t ptls = jl_get_ptls_states();
     // this runs the first time we switch to a task
@@ -283,7 +284,7 @@ void NOINLINE jl_set_base_ctx(char *__stk)
     jl_ptls_t ptls = jl_get_ptls_states();
     ptls->stackbase = (char*)(((uintptr_t)__stk + sizeof(*__stk))&-16); // also ensures stackbase is 16-byte aligned
 #ifndef ASM_COPY_STACKS
-    if (jl_setjmp(ptls->base_ctx, 1)) {
+    if (jl_setjmp(ptls->base_ctx, 0)) {
         start_task();
     }
 #endif
@@ -294,17 +295,17 @@ JL_DLLEXPORT void julia_init(JL_IMAGE_SEARCH rel)
 {
     // keep this function small, since we want to keep the stack frame
     // leading up to this also quite small
-    _julia_init(rel);
 #ifdef COPY_STACKS
     char __stk;
     jl_set_base_ctx(&__stk); // separate function, to record the size of a stack frame
 #endif
+    _julia_init(rel);
 }
 
-static void ctx_switch(jl_ptls_t ptls, jl_task_t *t, jl_jmp_buf *where)
+static void ctx_switch(jl_ptls_t ptls, jl_task_t **pt)
 {
-    if (t == ptls->current_task)
-        return;
+    jl_task_t *t = *pt;
+    assert(t != ptls->current_task);
 #ifdef ENABLE_TIMINGS
     jl_timing_block_t *blk = ptls->current_task->timing_stack;
     if (blk)
@@ -315,7 +316,9 @@ static void ctx_switch(jl_ptls_t ptls, jl_task_t *t, jl_jmp_buf *where)
         ptls->bt_size = 0;
         jl_task_t *lastt = ptls->current_task;
 #ifdef COPY_STACKS
-        save_stack(ptls, lastt);
+        save_stack(ptls, lastt, pt); // allocates (gc-safepoint, and can also fail)
+#else
+        *pt = lastt; // can't fail after here: clear the gc-root for the target task now
 #endif
 
         // set up global state for new task
@@ -347,7 +350,7 @@ static void ctx_switch(jl_ptls_t ptls, jl_task_t *t, jl_jmp_buf *where)
 
 #ifdef COPY_STACKS
         if (t->stkbuf) {
-            restore_stack(ptls, t, where, NULL);
+            restore_stack(ptls, NULL);
         }
         else {
 #ifdef ASM_COPY_STACKS
@@ -369,23 +372,32 @@ static void ctx_switch(jl_ptls_t ptls, jl_task_t *t, jl_jmp_buf *where)
                 " push %%ebp;\n" // instead of ESP
                 " jmp %P1;\n" // call `start_task` with fake stack frame
                 " ud2"
-                : : "r" (stackbase), "X"(&start_task) : "memory" );
+                : : "r"(stackbase), "X"(&start_task) : "memory" );
 #elif defined(_CPU_AARCH64_)
             asm(" mov sp, %0;\n"
                 " mov x29, xzr;\n" // Clear link register (x29) and frame pointer
                 " mov x30, xzr;\n" // (x30) to terminate unwinder.
-                " br %1;\n" // call `start_task` with fake stack frame
+                " b %1;\n" // call `start_task` with fake stack frame
                 " brk #0x1" // abort
-                : : "r" (stackbase), "r"(&start_task) : "memory" );
+                : : "r"(stackbase), "S"(&start_task) : "memory" );
+#elif defined(_CPU_ARM_)
+            // A "i" constraint on `&start_task` works only on clang and not on GCC.
+            asm(" mov sp, %0;\n"
+                " mov lr, #0;\n" // Clear link register (lr) and frame pointer
+                " mov fp, #0;\n" // (fp) to terminate unwinder.
+                " b start_task;\n" // call `start_task` with fake stack frame
+                " udf #0" // abort
+                : : "r"(stackbase) : "memory" );
 #else
 #error ASM_COPY_STACKS not supported on this cpu architecture
 #endif
 #else // ASM_COPY_STACKS
             jl_longjmp(ptls->base_ctx, 1);
 #endif
+            jl_unreachable();
         }
 #else
-        jl_longjmp(*where, 1);
+        jl_longjmp(t->ctx, 1);
 #endif
     }
 #ifdef ENABLE_TIMINGS
@@ -395,9 +407,10 @@ static void ctx_switch(jl_ptls_t ptls, jl_task_t *t, jl_jmp_buf *where)
 #endif
 }
 
-JL_DLLEXPORT void jl_switchto(jl_task_t *t)
+JL_DLLEXPORT void jl_switchto(jl_task_t **pt)
 {
     jl_ptls_t ptls = jl_get_ptls_states();
+    jl_task_t *t = *pt;
     if (t == ptls->current_task) {
         return;
     }
@@ -413,7 +426,7 @@ JL_DLLEXPORT void jl_switchto(jl_task_t *t)
         jl_error("task switch not allowed from inside staged nor pure functions");
     sig_atomic_t defer_signal = ptls->defer_signal;
     int8_t gc_state = jl_gc_unsafe_enter(ptls);
-    ctx_switch(ptls, t, &t->ctx);
+    ctx_switch(ptls, pt);
     jl_gc_unsafe_leave(ptls, gc_state);
     sig_atomic_t other_defer_signal = ptls->defer_signal;
     ptls->defer_signal = defer_signal;
@@ -591,13 +604,14 @@ JL_DLLEXPORT jl_task_t *jl_new_task(jl_function_t *start, size_t ssize)
     t->current_module = NULL;
     t->parent = ptls->current_task;
     t->tls = jl_nothing;
-    t->consumers = jl_nothing;
     t->state = runnable_sym;
     t->start = start;
     t->result = jl_nothing;
     t->donenotify = jl_nothing;
     t->exception = jl_nothing;
     t->backtrace = jl_nothing;
+    // Inherit logger state from parent task
+    t->logstate = ptls->current_task->logstate;
     // there is no active exception handler available on this stack yet
     t->eh = NULL;
     t->gcstack = NULL;
@@ -658,18 +672,19 @@ void jl_init_tasks(void)
     _probe_arch();
     jl_task_type = (jl_datatype_t*)
         jl_new_datatype(jl_symbol("Task"),
+                        NULL,
                         jl_any_type,
                         jl_emptysvec,
-                        jl_svec(9,
-                                jl_symbol("parent"),
-                                jl_symbol("storage"),
-                                jl_symbol("state"),
-                                jl_symbol("consumers"),
-                                jl_symbol("donenotify"),
-                                jl_symbol("result"),
-                                jl_symbol("exception"),
-                                jl_symbol("backtrace"),
-                                jl_symbol("code")),
+                        jl_perm_symsvec(9,
+                                        "parent",
+                                        "storage",
+                                        "state",
+                                        "donenotify",
+                                        "result",
+                                        "exception",
+                                        "backtrace",
+                                        "logstate",
+                                        "code"),
                         jl_svec(9,
                                 jl_any_type,
                                 jl_any_type,
@@ -710,13 +725,13 @@ void jl_init_root_task(void *stack, size_t ssize)
     ptls->current_task->parent = ptls->current_task;
     ptls->current_task->current_module = ptls->current_module;
     ptls->current_task->tls = jl_nothing;
-    ptls->current_task->consumers = jl_nothing;
     ptls->current_task->state = runnable_sym;
     ptls->current_task->start = NULL;
     ptls->current_task->result = jl_nothing;
     ptls->current_task->donenotify = jl_nothing;
     ptls->current_task->exception = jl_nothing;
     ptls->current_task->backtrace = jl_nothing;
+    ptls->current_task->logstate = jl_nothing;
     ptls->current_task->eh = NULL;
     ptls->current_task->gcstack = NULL;
     ptls->current_task->tid = ptls->tid;

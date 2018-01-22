@@ -19,16 +19,16 @@ struct Requirement <: Line
     system::Vector{AbstractString}
 
     function Requirement(content::AbstractString)
-        fields = split(replace(content, r"#.*$", ""))
+        fields = split(replace(content, r"#.*$" => ""))
         system = AbstractString[]
         while !isempty(fields) && fields[1][1] == '@'
-            push!(system,shift!(fields)[2:end])
+            push!(system,popfirst!(fields)[2:end])
         end
         isempty(fields) && throw(PkgError("invalid requires entry: $content"))
-        package = shift!(fields)
-        all(field->ismatch(Base.VERSION_REGEX, field), fields) ||
+        package = popfirst!(fields)
+        all(field->contains(field, Base.VERSION_REGEX), fields) ||
             throw(PkgError("invalid requires entry for $package: $content"))
-        versions = VersionNumber[fields...]
+        versions = map(VersionNumber, fields)
         issorted(versions) || throw(PkgError("invalid requires entry for $package: $content"))
         new(content, package, VersionSet(versions), system)
     end
@@ -58,7 +58,7 @@ function read(readable::Vector{<:AbstractString})
     lines = Line[]
     for line in readable
         line = chomp(line)
-        push!(lines, ismatch(r"^\s*(?:#|$)", line) ? Comment(line) : Requirement(line))
+        push!(lines, contains(line, r"^\s*(?:#|$)") ? Comment(line) : Requirement(line))
     end
     return lines
 end
@@ -66,7 +66,7 @@ end
 function read(readable::Union{IO,Base.AbstractCmd})
     lines = Line[]
     for line in eachline(readable)
-        push!(lines, ismatch(r"^\s*(?:#|$)", line) ? Comment(line) : Requirement(line))
+        push!(lines, contains(line, r"^\s*(?:#|$)") ? Comment(line) : Requirement(line))
     end
     return lines
 end
@@ -90,16 +90,16 @@ function parse(lines::Vector{Line})
         if isa(line,Requirement)
             if !isempty(line.system)
                 applies = false
-                if is_windows(); applies |=  ("windows"  in line.system); end
-                if is_unix();    applies |=  ("unix"     in line.system); end
-                if is_apple();   applies |=  ("osx"      in line.system); end
-                if is_linux();   applies |=  ("linux"    in line.system); end
-                if is_bsd();     applies |=  ("bsd"      in line.system); end
-                if is_windows(); applies &= !("!windows" in line.system); end
-                if is_unix();    applies &= !("!unix"    in line.system); end
-                if is_apple();   applies &= !("!osx"     in line.system); end
-                if is_linux();   applies &= !("!linux"   in line.system); end
-                if is_bsd();     applies &= !("!bsd"     in line.system); end
+                if Sys.iswindows(); applies |=  ("windows"  in line.system); end
+                if Sys.isunix();    applies |=  ("unix"     in line.system); end
+                if Sys.isapple();   applies |=  ("osx"      in line.system); end
+                if Sys.islinux();   applies |=  ("linux"    in line.system); end
+                if Sys.isbsd();     applies |=  ("bsd"      in line.system); end
+                if Sys.iswindows(); applies &= !("!windows" in line.system); end
+                if Sys.isunix();    applies &= !("!unix"    in line.system); end
+                if Sys.isapple();   applies &= !("!osx"     in line.system); end
+                if Sys.islinux();   applies &= !("!linux"   in line.system); end
+                if Sys.isbsd();     applies &= !("!bsd"     in line.system); end
                 applies || continue
             end
             reqs[line.package] = haskey(reqs, line.package) ?

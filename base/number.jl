@@ -1,6 +1,11 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 ## generic operations on numbers ##
+
+# Numbers are convertible
+convert(::Type{T}, x::T)      where {T<:Number} = x
+convert(::Type{T}, x::Number) where {T<:Number} = T(x)
+
 """
     isinteger(x) -> Bool
 
@@ -18,19 +23,38 @@ isinteger(x::Integer) = true
 
 Return `true` if `x == zero(x)`; if `x` is an array, this checks whether
 all of the elements of `x` are zero.
+
+```jldoctest
+julia> iszero(0.0)
+true
+```
 """
 iszero(x) = x == zero(x) # fallback method
 
+"""
+    isone(x)
+
+Return `true` if `x == one(x)`; if `x` is an array, this checks whether
+`x` is an identity matrix.
+
+```jldoctest
+julia> isone(1.0)
+true
+```
+"""
+isone(x) = x == one(x) # fallback method
+
 size(x::Number) = ()
 size(x::Number,d) = convert(Int,d)<1 ? throw(BoundsError()) : 1
-indices(x::Number) = ()
-indices(x::Number,d) = convert(Int,d)<1 ? throw(BoundsError()) : OneTo(1)
+axes(x::Number) = ()
+axes(x::Number,d) = convert(Int,d)<1 ? throw(BoundsError()) : OneTo(1)
 eltype(::Type{T}) where {T<:Number} = T
 ndims(x::Number) = 0
 ndims(::Type{<:Number}) = 0
 length(x::Number) = 1
 endof(x::Number) = 1
-iteratorsize(::Type{<:Number}) = HasShape()
+IteratorSize(::Type{<:Number}) = HasShape()
+keys(::Number) = OneTo(1)
 
 getindex(x::Number) = x
 function getindex(x::Number, i::Integer)
@@ -45,7 +69,7 @@ function getindex(x::Number, I::Integer...)
 end
 first(x::Number) = x
 last(x::Number) = x
-copy(x::Number) = x  # some code treats numbers as collection-like
+copy(x::Number) = x # some code treats numbers as collection-like
 
 """
     divrem(x, y)
@@ -69,6 +93,27 @@ divrem(x,y) = (div(x,y),rem(x,y))
 The floored quotient and modulus after division. Equivalent to `(fld(x,y), mod(x,y))`.
 """
 fldmod(x,y) = (fld(x,y),mod(x,y))
+
+"""
+    signbit(x)
+
+Returns `true` if the value of the sign of `x` is negative, otherwise `false`.
+
+# Examples
+```jldoctest
+julia> signbit(-4)
+true
+
+julia> signbit(5)
+false
+
+julia> signbit(5.5)
+false
+
+julia> signbit(-4.1)
+true
+```
+"""
 signbit(x::Real) = x < 0
 
 """
@@ -85,6 +130,11 @@ abs(x::Real) = ifelse(signbit(x), -x, x)
     abs2(x)
 
 Squared absolute value of `x`.
+
+```jldoctest
+julia> abs2(-3)
+9
+```
 """
 abs2(x::Real) = x*x
 
@@ -92,15 +142,86 @@ abs2(x::Real) = x*x
     flipsign(x, y)
 
 Return `x` with its sign flipped if `y` is negative. For example `abs(x) = flipsign(x,x)`.
+
+```jldoctest
+julia> flipsign(5, 3)
+5
+
+julia> flipsign(5, -3)
+-5
+```
 """
-flipsign(x::Real, y::Real) = ifelse(signbit(y), -x, x)
-copysign(x::Real, y::Real) = ifelse(signbit(x)!=signbit(y), -x, x)
+flipsign(x::Real, y::Real) = ifelse(signbit(y), -x, +x) # the + is for type-stability on Bool
+
+"""
+    copysign(x, y) -> z
+
+Return `z` which has the magnitude of `x` and the same sign as `y`.
+
+# Examples
+```jldoctest
+julia> copysign(1, -2)
+-1
+
+julia> copysign(-1, 2)
+1
+```
+"""
+copysign(x::Real, y::Real) = ifelse(signbit(x)!=signbit(y), -x, +x)
 
 conj(x::Real) = x
 transpose(x::Number) = x
-ctranspose(x::Number) = conj(x)
-inv(x::Number) = one(x)/x
+"""
+    adjoint(A)
+
+Lazy adjoint (conjugate transposition) (also postfix `'`). Note that `adjoint` is applied recursively to
+elements.
+
+This operation is intended for linear algebra usage - for general data manipulation see
+[`permutedims`](@ref).
+
+# Examples
+```jldoctest
+julia> A = [3+2im 9+2im; 8+7im  4+6im]
+2×2 Array{Complex{Int64},2}:
+ 3+2im  9+2im
+ 8+7im  4+6im
+
+julia> adjoint(A)
+2×2 Adjoint{Complex{Int64},Array{Complex{Int64},2}}:
+ 3-2im  8-7im
+ 9-2im  4-6im
+```
+"""
+adjoint(x::Number) = conj(x)
 angle(z::Real) = atan2(zero(z), z)
+
+"""
+    inv(x)
+
+Return the multiplicative inverse of `x`, such that `x*inv(x)` or `inv(x)*x`
+yields [`one(x)`](@ref) (the multiplicative identity) up to roundoff errors.
+
+If `x` is a number, this is essentially the same as `one(x)/x`, but for
+some types `inv(x)` may be slightly more efficient.
+
+# Examples
+```jldoctest
+julia> inv(2)
+0.5
+
+julia> inv(1 + 2im)
+0.2 - 0.4im
+
+julia> inv(1 + 2im) * (1 + 2im)
+1.0 + 0.0im
+
+julia> inv(2//3)
+3//2
+```
+"""
+inv(x::Number) = one(x)/x
+
 
 """
     widemul(x, y)
@@ -109,7 +230,7 @@ Multiply `x` and `y`, giving the result as a larger type.
 
 ```jldoctest
 julia> widemul(Float32(3.), 4.)
-1.200000000000000000000000000000000000000000000000000000000000000000000000000000e+01
+1.2e+01
 ```
 """
 widemul(x::Number, y::Number) = widen(x)*widen(y)
@@ -126,6 +247,19 @@ map(f, x::Number, ys::Number...) = f(x, ys...)
     zero(x)
 
 Get the additive identity element for the type of `x` (`x` can also specify the type itself).
+
+```jldoctest
+julia> zero(1)
+0
+
+julia> zero(big"2.0")
+0.0
+
+julia> zero(rand(2,2))
+2×2 Array{Float64,2}:
+ 0.0  0.0
+ 0.0  0.0
+```
 """
 zero(x::Number) = oftype(x,0)
 zero(::Type{T}) where {T<:Number} = convert(T,0)
@@ -156,7 +290,7 @@ julia> one(3.7)
 julia> one(Int)
 1
 
-julia> one(Dates.Day(1))
+julia> import Dates; one(Dates.Day(1))
 1
 ```
 """
@@ -178,7 +312,7 @@ while `oneunit` is dimensionful (of the same type as `x`, or of type `T`).
 julia> oneunit(3.7)
 1.0
 
-julia> oneunit(Dates.Day)
+julia> import Dates; oneunit(Dates.Day)
 1 day
 ```
 """
@@ -190,8 +324,8 @@ _default_type(::Type{Number}) = Int
 """
     factorial(n)
 
-Factorial of `n`.  If `n` is an `Integer`, the factorial is computed as an
-integer (promoted to at least 64 bits).  Note that this may overflow if `n` is not small,
+Factorial of `n`. If `n` is an [`Integer`](@ref), the factorial is computed as an
+integer (promoted to at least 64 bits). Note that this may overflow if `n` is not small,
 but you can use `factorial(big(n))` to compute the result exactly in arbitrary precision.
 If `n` is not an `Integer`, `factorial(n)` is equivalent to [`gamma(n+1)`](@ref).
 
@@ -200,7 +334,8 @@ julia> factorial(6)
 720
 
 julia> factorial(21)
-ERROR: OverflowError()
+ERROR: OverflowError: 21 is too large to look up in the table
+Stacktrace:
 [...]
 
 julia> factorial(21.0)
@@ -211,3 +346,22 @@ julia> factorial(big(21))
 ```
 """
 factorial(x::Number) = gamma(x + 1) # fallback for x not Integer
+
+"""
+    big(T::Type)
+
+Compute the type that represents the numeric type `T` with arbitrary precision.
+Equivalent to `typeof(big(zero(T)))`.
+
+```jldoctest
+julia> big(Rational)
+Rational{BigInt}
+
+julia> big(Float64)
+BigFloat
+
+julia> big(Complex{Int})
+Complex{BigInt}
+```
+"""
+big(::Type{T}) where {T<:Number} = typeof(big(zero(T)))

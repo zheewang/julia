@@ -16,18 +16,31 @@
 #     rethrow(val)
 # end
 
+"""
+    throw(e)
+
+Throw an object as an exception.
+"""
+throw
+
 ## native julia error handling ##
 
+"""
+    error(message::AbstractString)
+
+Raise an `ErrorException` with the given message.
+"""
 error(s::AbstractString) = throw(ErrorException(s))
 
 """
     error(msg...)
 
 Raise an `ErrorException` with the given message.
-
-See also [`logging`](@ref).
 """
-error(s...) = throw(ErrorException(Main.Base.string(s...)))
+function error(s::Vararg{Any,N}) where {N}
+    @_noinline_meta
+    throw(ErrorException(Main.Base.string(s...)))
+end
 
 """
     rethrow([e])
@@ -38,22 +51,51 @@ the current exception (if called within a `catch` block).
 rethrow() = ccall(:jl_rethrow, Bottom, ())
 rethrow(e) = ccall(:jl_rethrow_other, Bottom, (Any,), e)
 
-"""
-    backtrace()
+struct InterpreterIP
+    code::Union{CodeInfo,Core.MethodInstance,Nothing}
+    stmt::Csize_t
+end
 
-Get a backtrace object for the current program point.
-"""
-backtrace() = ccall(:jl_backtrace_from_here, Array{Ptr{Void},1}, (Int32,), false)
+# convert dual arrays (ips, interpreter_frames) to a single array of locations
+function _reformat_bt(bt, bt2)
+    ret = Vector{Union{InterpreterIP,Ptr{Cvoid}}}()
+    i, j = 1, 1
+    while i <= length(bt)
+        ip = bt[i]::Ptr{Cvoid}
+        if ip == Ptr{Cvoid}(-1%UInt)
+            # The next one is really a CodeInfo
+            push!(ret, InterpreterIP(
+                bt2[j],
+                bt[i+2]))
+            j += 1
+            i += 3
+        else
+            push!(ret, Ptr{Cvoid}(ip))
+            i += 1
+        end
+    end
+    ret
+end
+
+function backtrace end
 
 """
     catch_backtrace()
 
 Get the backtrace of the current exception, for use within `catch` blocks.
 """
-catch_backtrace() = ccall(:jl_get_backtrace, Array{Ptr{Void},1}, ())
+function catch_backtrace()
+    bt = Ref{Any}(nothing)
+    bt2 = Ref{Any}(nothing)
+    ccall(:jl_get_backtrace, Cvoid, (Ref{Any}, Ref{Any}), bt, bt2)
+    return _reformat_bt(bt[], bt2[])
+end
 
 ## keyword arg lowering generates calls to this ##
-kwerr(kw, args...) = throw(MethodError(typeof(args[1]).name.mt.kwsorter, (kw,args...)))
+function kwerr(kw, args::Vararg{Any,N}) where {N}
+    @_noinline_meta
+    throw(MethodError(typeof(args[1]).name.mt.kwsorter, (kw,args...)))
+end
 
 ## system error handling ##
 """
@@ -65,7 +107,43 @@ systemerror(p, b::Bool; extrainfo=nothing) = b ? throw(Main.Base.SystemError(str
 
 ## assertion functions and macros ##
 
-assert(x) = x ? nothing : throw(Main.Base.AssertionError())
+
+"""
+    assert(cond)
+
+Throw an [`AssertionError`](@ref) if `cond` is `false`.
+Also available as the macro [`@assert`](@ref).
+
+!!! warning
+    An assert might be disabled at various optimization levels.
+    Assert should therefore only be used as a debugging tool
+    and not used for authentication verification (e.g. verifying passwords),
+    nor should side effects needed for the function to work correctly
+    be used inside of asserts.
+"""
+assert(x) = x ? nothing : throw(AssertionError())
+
+"""
+    @assert cond [text]
+
+Throw an [`AssertionError`](@ref) if `cond` is `false`. Preferred syntax for writing assertions.
+Message `text` is optionally displayed upon assertion failure.
+
+!!! warning
+    An assert might be disabled at various optimization levels.
+    Assert should therefore only be used as a debugging tool
+    and not used for authentication verification (e.g. verifying passwords),
+    nor should side effects needed for the function to work correctly
+    be used inside of asserts.
+
+# Examples
+```jldoctest
+julia> @assert iseven(3) "3 is an odd number!"
+ERROR: AssertionError: 3 is an odd number!
+
+julia> @assert isodd(3) "What even are numbers?"
+```
+"""
 macro assert(ex, msgs...)
     msg = isempty(msgs) ? ex : msgs[1]
     if isa(msg, AbstractString)
@@ -79,7 +157,7 @@ macro assert(ex, msgs...)
         # string() might not be defined during bootstrap
         msg = :(Main.Base.string($(Expr(:quote,msg))))
     end
-    return :($(esc(ex)) ? $(nothing) : throw(Main.Base.AssertionError($msg)))
+    return :($(esc(ex)) ? $(nothing) : throw(AssertionError($msg)))
 end
 
 struct ExponentialBackOff
@@ -98,7 +176,7 @@ end
 """
     ExponentialBackOff(; n=1, first_delay=0.05, max_delay=10.0, factor=5.0, jitter=0.1)
 
-A `Float64` iterator of length `n` whose elements exponentially increase at a
+A [`Float64`](@ref) iterator of length `n` whose elements exponentially increase at a
 rate in the interval `factor` * (1 ± `jitter`).  The first element is
 `first_delay` and all elements are clamped to `max_delay`.
 """
@@ -108,7 +186,7 @@ start(ebo::ExponentialBackOff) = (ebo.n, min(ebo.first_delay, ebo.max_delay))
 function next(ebo::ExponentialBackOff, state)
     next_n = state[1]-1
     curr_delay = state[2]
-    next_delay = min(ebo.max_delay, state[2] * ebo.factor * (1.0 - ebo.jitter + (rand() * 2.0 * ebo.jitter)))
+    next_delay = min(ebo.max_delay, state[2] * ebo.factor * (1.0 - ebo.jitter + (rand(Float64) * 2.0 * ebo.jitter)))
     (curr_delay, (next_n, next_delay))
 end
 done(ebo::ExponentialBackOff, state) = state[1]<1
@@ -117,7 +195,7 @@ length(ebo::ExponentialBackOff) = ebo.n
 """
     retry(f::Function;  delays=ExponentialBackOff(), check=nothing) -> Function
 
-Returns an anonymous function that calls function `f`.  If an exception arises,
+Return an anonymous function that calls function `f`.  If an exception arises,
 `f` is repeatedly called again, each time `check` returns `true`, after waiting the
 number of seconds specified in `delays`.  `check` should input `delays`'s
 current state and the `Exception`.

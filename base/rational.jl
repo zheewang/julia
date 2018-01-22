@@ -1,13 +1,18 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
+"""
+    Rational{T<:Integer} <: Real
+
+Rational number type, with numerator and denominator of type `T`.
+"""
 struct Rational{T<:Integer} <: Real
     num::T
     den::T
 
     function Rational{T}(num::Integer, den::Integer) where T<:Integer
         num == den == zero(T) && throw(ArgumentError("invalid rational: zero($T)//zero($T)"))
-        g = den < 0 ? -gcd(den, num) : gcd(den, num)
-        new(div(num, g), div(den, g))
+        num2, den2 = (sign(den) < 0) ? divgcd(-num, -den) : divgcd(num, den)
+        new(num2, den2)
     end
 end
 Rational(n::T, d::T) where {T<:Integer} = Rational{T}(n,d)
@@ -22,7 +27,7 @@ end
 """
     //(num, den)
 
-Divide two integers or rational numbers, giving a `Rational` result.
+Divide two integers or rational numbers, giving a [`Rational`](@ref) result.
 
 ```jldoctest
 julia> 3 // 5
@@ -32,9 +37,9 @@ julia> (3 // 5) // (2 // 1)
 3//10
 ```
 """
-//(n::Integer,  d::Integer ) = Rational(n,d)
+//(n::Integer,  d::Integer) = Rational(n,d)
 
-function //(x::Rational, y::Integer )
+function //(x::Rational, y::Integer)
     xn,yn = divgcd(x.num,y)
     xn//checked_mul(x.den,yn)
 end
@@ -49,7 +54,7 @@ function //(x::Rational, y::Rational)
 end
 
 //(x::Complex,  y::Real) = complex(real(x)//y,imag(x)//y)
-//(x::Number, y::Complex) = x*y'//abs2(y)
+//(x::Number, y::Complex) = x*conj(y)//abs2(y)
 
 
 //(X::AbstractArray, y::Number) = X .// y
@@ -69,29 +74,29 @@ function write(s::IO, z::Rational)
     write(s,numerator(z),denominator(z))
 end
 
-convert(::Type{Rational{T}}, x::Rational) where {T<:Integer} = Rational{T}(convert(T,x.num),convert(T,x.den))
-convert(::Type{Rational{T}}, x::Integer) where {T<:Integer} = Rational{T}(convert(T,x), convert(T,1))
+Rational{T}(x::Rational) where {T<:Integer} = Rational{T}(convert(T,x.num), convert(T,x.den))
+Rational{T}(x::Integer) where {T<:Integer} = Rational{T}(convert(T,x), convert(T,1))
 
-convert(::Type{Rational}, x::Rational) = x
-convert(::Type{Rational}, x::Integer) = convert(Rational{typeof(x)},x)
+Rational(x::Rational) = x
 
-convert(::Type{Bool}, x::Rational) = x==0 ? false : x==1 ? true : throw(InexactError()) # to resolve ambiguity
-convert(::Type{Integer}, x::Rational) = (isinteger(x) ? convert(Integer, x.num) : throw(InexactError()))
-convert(::Type{T}, x::Rational) where {T<:Integer} = (isinteger(x) ? convert(T, x.num) : throw(InexactError()))
+Bool(x::Rational) = x==0 ? false : x==1 ? true :
+    throw(InexactError(:Bool, Bool, x)) # to resolve ambiguity
+(::Type{T})(x::Rational) where {T<:Integer} = (isinteger(x) ? convert(T, x.num) :
+    throw(InexactError(Symbol(string(T)), T, x)))
 
-convert(::Type{AbstractFloat}, x::Rational) = float(x.num)/float(x.den)
-function convert(::Type{T}, x::Rational{S}) where T<:AbstractFloat where S
+AbstractFloat(x::Rational) = float(x.num)/float(x.den)
+function (::Type{T})(x::Rational{S}) where T<:AbstractFloat where S
     P = promote_type(T,S)
     convert(T, convert(P,x.num)/convert(P,x.den))
 end
 
-function convert(::Type{Rational{T}}, x::AbstractFloat) where T<:Integer
+function Rational{T}(x::AbstractFloat) where T<:Integer
     r = rationalize(T, x, tol=0)
-    x == convert(typeof(x), r) || throw(InexactError())
+    x == convert(typeof(x), r) || throw(InexactError(:Rational, Rational{T}, x))
     r
 end
-convert(::Type{Rational}, x::Float64) = convert(Rational{Int64}, x)
-convert(::Type{Rational}, x::Float32) = convert(Rational{Int}, x)
+Rational(x::Float64) = Rational{Int64}(x)
+Rational(x::Float32) = Rational{Int}(x)
 
 big(z::Complex{<:Rational{<:Integer}}) = Complex{Rational{BigInt}}(z)
 
@@ -104,9 +109,8 @@ widen(::Type{Rational{T}}) where {T} = Rational{widen(T)}
 """
     rationalize([T<:Integer=Int,] x; tol::Real=eps(x))
 
-Approximate floating point number `x` as a `Rational` number with components
+Approximate floating point number `x` as a [`Rational`](@ref) number with components
 of the given integer type. The result will differ from `x` by no more than `tol`.
-If `T` is not provided, it defaults to `Int`.
 
 ```jldoctest
 julia> rationalize(5.6)
@@ -224,12 +228,12 @@ typemax(::Type{Rational{T}}) where {T<:Integer} = one(T)//zero(T)
 isinteger(x::Rational) = x.den == 1
 
 -(x::Rational) = (-x.num) // x.den
-function -(x::Rational{T}) where T<:Signed
-    x.num == typemin(T) && throw(OverflowError())
+function -(x::Rational{T}) where T<:BitSigned
+    x.num == typemin(T) && throw(OverflowError("rational numerator is typemin(T)"))
     (-x.num) // x.den
 end
 function -(x::Rational{T}) where T<:Unsigned
-    x.num != zero(T) && throw(OverflowError())
+    x.num != zero(T) && throw(OverflowError("cannot negate unsigned number"))
     x
 end
 
@@ -250,6 +254,7 @@ function *(x::Rational, y::Rational)
 end
 /(x::Rational, y::Rational) = x//y
 /(x::Rational, y::Complex{<:Union{Integer,Rational}}) = x//y
+inv(x::Rational) = Rational(x.den, x.num)
 
 fma(x::Rational, y::Rational, z::Rational) = x*y+z
 
@@ -280,8 +285,13 @@ end
 for rel in (:<,:<=,:cmp)
     for (Tx,Ty) in ((Rational,AbstractFloat), (AbstractFloat,Rational))
         @eval function ($rel)(x::$Tx, y::$Ty)
-            if isnan(x) || isnan(y)
-                $(rel == :cmp ? :(throw(DomainError())) : :(return false))
+            if isnan(x)
+                $(rel == :cmp ? :(return isnan(y) ? 0 : 1) :
+                                :(return false))
+            end
+            if isnan(y)
+                $(rel == :cmp ? :(return -1) :
+                                :(return false))
             end
 
             xn, xp, xd = decompose(x)
@@ -395,7 +405,7 @@ function round(::Type{T}, x::Rational{Tr}, ::RoundingMode{:NearestTiesUp}) where
 end
 
 function round(::Type{T}, x::Rational{Bool}) where T
-    if denominator(x) == false && issubtype(T, Union{Integer, Bool})
+    if denominator(x) == false && (T <: Union{Integer, Bool})
         throw(DivideError())
     end
     convert(T, x)
@@ -417,7 +427,7 @@ end
 
 ^(x::Number, y::Rational) = x^(y.num/y.den)
 ^(x::T, y::Rational) where {T<:AbstractFloat} = x^convert(T,y)
-^(x::Complex{T}, y::Rational) where {T<:AbstractFloat} = x^convert(T,y)
+^(z::Complex{T}, p::Rational) where {T<:Real} = z^convert(typeof(one(T)^p), p)
 
 ^(z::Complex{<:Rational}, n::Bool) = n ? z : one(z) # to resolve ambiguity
 function ^(z::Complex{<:Rational}, n::Integer)
@@ -425,7 +435,10 @@ function ^(z::Complex{<:Rational}, n::Integer)
 end
 
 iszero(x::Rational) = iszero(numerator(x))
+isone(x::Rational) = isone(numerator(x)) & isone(denominator(x))
 
 function lerpi(j::Integer, d::Integer, a::Rational, b::Rational)
     ((d-j)*a)/d + (j*b)/d
 end
+
+float(::Type{Rational{T}}) where {T<:Integer} = float(T)

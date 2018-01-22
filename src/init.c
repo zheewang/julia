@@ -9,7 +9,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <assert.h>
 #include <fcntl.h>
 
 #include <errno.h>
@@ -24,6 +23,7 @@
 #include "builtin_proto.h"
 #undef DEFINE_BUILTIN_GLOBALS
 #include "threading.h"
+#include "julia_assert.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -55,7 +55,6 @@ JL_DLLEXPORT const char* __asan_default_options() {
 }
 #endif
 
-int jl_boot_file_loaded = 0;
 size_t jl_page_size;
 
 void jl_init_stack_limits(int ismaster)
@@ -363,6 +362,7 @@ static void *init_stdio_handle(uv_file fd,int readable)
             }
 #endif
             // ...and continue on as in the UV_FILE case
+            JL_FALLTHROUGH;
         case UV_FILE:
             file = (jl_uv_file_t*)malloc(sizeof(jl_uv_file_t));
             file->loop = jl_io_loop;
@@ -433,47 +433,65 @@ int isabspath(const char *in)
     return 0; // relative path
 }
 
-static char *abspath(const char *in)
+static char *abspath(const char *in, int nprefix)
 { // compute an absolute path location, so that chdir doesn't change the file reference
+  // ignores (copies directly over) nprefix characters at the start of abspath
 #ifndef _OS_WINDOWS_
-    char *out = realpath(in, NULL);
-    if (!out) {
-        if (in[0] == PATHSEPSTRING[0]) {
-            out = strdup(in);
+    char *out = realpath(in + nprefix, NULL);
+    if (out) {
+        if (nprefix > 0) {
+            size_t sz = strlen(out) + 1;
+            char *cpy = (char*)malloc(sz + nprefix);
+            if (!cpy)
+                jl_errorf("fatal error: failed to allocate memory: %s", strerror(errno));
+            memcpy(cpy, in, nprefix);
+            memcpy(cpy + nprefix, out, sz);
+            free(out);
+            out = cpy;
+        }
+    }
+    else {
+        size_t sz = strlen(in + nprefix) + 1;
+        if (in[nprefix] == PATHSEPSTRING[0]) {
+            out = (char*)malloc(sz + nprefix);
+            if (!out)
+                jl_errorf("fatal error: failed to allocate memory: %s", strerror(errno));
+            memcpy(out, in, sz + nprefix);
         }
         else {
             size_t path_size = PATH_MAX;
-            size_t len = strlen(in);
             char *path = (char*)malloc(PATH_MAX);
+            if (!path)
+                jl_errorf("fatal error: failed to allocate memory: %s", strerror(errno));
             if (uv_cwd(path, &path_size)) {
                 jl_error("fatal error: unexpected error while retrieving current working directory");
             }
-            if (path_size + len + 2 >= PATH_MAX) {
-                jl_error("fatal error: current working directory path too long");
-            }
-            path[path_size] = PATHSEPSTRING[0];
-            memcpy(path + path_size + 1, in, len+1);
-            out = strdup(path);
+            out = (char*)malloc(path_size + 1 + sz + nprefix);
+            memcpy(out, in, nprefix);
+            memcpy(out + nprefix, path, path_size);
+            out[nprefix + path_size] = PATHSEPSTRING[0];
+            memcpy(out + nprefix + path_size + 1, in + nprefix, sz);
             free(path);
         }
     }
 #else
-    DWORD n = GetFullPathName(in, 0, NULL, NULL);
+    DWORD n = GetFullPathName(in + nprefix, 0, NULL, NULL);
     if (n <= 0) {
         jl_error("fatal error: jl_options.image_file path too long or GetFullPathName failed");
     }
-    char *out = (char*)malloc(n);
-    DWORD m = GetFullPathName(in, n, out, NULL);
+    char *out = (char*)malloc(n + nprefix);
+    DWORD m = GetFullPathName(in + nprefix, n, out + nprefix, NULL);
     if (n != m + 1) {
         jl_error("fatal error: jl_options.image_file path too long or GetFullPathName failed");
     }
+    memcpy(out, in, nprefix);
 #endif
     return out;
 }
 
 static void jl_resolve_sysimg_location(JL_IMAGE_SEARCH rel)
 {   // this function resolves the paths in jl_options to absolute file locations as needed
-    // and it replaces the pointers to `julia_home`, `julia_bin`, `image_file`, and output file paths
+    // and it replaces the pointers to `julia_bindir`, `julia_bin`, `image_file`, and output file paths
     // it may fail, print an error, and exit(1) if any of these paths are longer than PATH_MAX
     //
     // note: if you care about lost memory, you should call the appropriate `free()` function
@@ -490,44 +508,61 @@ static void jl_resolve_sysimg_location(JL_IMAGE_SEARCH rel)
     jl_options.julia_bin = (char*)malloc(path_size+1);
     memcpy((char*)jl_options.julia_bin, free_path, path_size);
     ((char*)jl_options.julia_bin)[path_size] = '\0';
-    if (!jl_options.julia_home) {
-        jl_options.julia_home = getenv("JULIA_HOME");
-        if (!jl_options.julia_home) {
-            jl_options.julia_home = dirname(free_path);
+    if (!jl_options.julia_bindir) {
+        jl_options.julia_bindir = getenv("JULIA_BINDIR");
+        if (!jl_options.julia_bindir) {
+            char *julia_bindir = getenv("JULIA_HOME");
+            if (julia_bindir) {
+                jl_depwarn(
+                    "`JULIA_HOME` environment variable is renamed to `JULIA_BINDIR`",
+                    (jl_value_t*)jl_symbol("JULIA_HOME"));
+                jl_options.julia_bindir = julia_bindir;
+            }
+        }
+        if (!jl_options.julia_bindir) {
+            jl_options.julia_bindir = dirname(free_path);
         }
     }
-    if (jl_options.julia_home)
-        jl_options.julia_home = abspath(jl_options.julia_home);
+    if (jl_options.julia_bindir)
+        jl_options.julia_bindir = abspath(jl_options.julia_bindir, 0);
     free(free_path);
     free_path = NULL;
     if (jl_options.image_file) {
         if (rel == JL_IMAGE_JULIA_HOME && !isabspath(jl_options.image_file)) {
-            // build time path, relative to JULIA_HOME
+            // build time path, relative to JULIA_BINDIR
             free_path = (char*)malloc(PATH_MAX);
             int n = snprintf(free_path, PATH_MAX, "%s" PATHSEPSTRING "%s",
-                             jl_options.julia_home, jl_options.image_file);
+                             jl_options.julia_bindir, jl_options.image_file);
             if (n >= PATH_MAX || n < 0) {
                 jl_error("fatal error: jl_options.image_file path too long");
             }
             jl_options.image_file = free_path;
         }
         if (jl_options.image_file)
-            jl_options.image_file = abspath(jl_options.image_file);
+            jl_options.image_file = abspath(jl_options.image_file, 0);
         if (free_path) {
             free(free_path);
             free_path = NULL;
         }
     }
     if (jl_options.outputo)
-        jl_options.outputo = abspath(jl_options.outputo);
+        jl_options.outputo = abspath(jl_options.outputo, 0);
     if (jl_options.outputji)
-        jl_options.outputji = abspath(jl_options.outputji);
+        jl_options.outputji = abspath(jl_options.outputji, 0);
     if (jl_options.outputbc)
-        jl_options.outputbc = abspath(jl_options.outputbc);
+        jl_options.outputbc = abspath(jl_options.outputbc, 0);
     if (jl_options.machinefile)
-        jl_options.machinefile = abspath(jl_options.machinefile);
-    if (jl_options.load)
-        jl_options.load = abspath(jl_options.load);
+        jl_options.machinefile = abspath(jl_options.machinefile, 0);
+
+    const char **cmdp = jl_options.cmds;
+    if (cmdp) {
+        for (; *cmdp; cmdp++) {
+            const char *cmd = *cmdp;
+            if (cmd[0] == 'L') {
+                *cmdp = abspath(cmd, 1);
+            }
+        }
+    }
 }
 
 static void jl_set_io_wait(int v)
@@ -663,13 +698,12 @@ void _julia_init(JL_IMAGE_SEARCH rel)
         jl_internal_main_module = jl_main_module;
 
         ptls->current_module = jl_core_module;
-        for (int t = 0;t < jl_n_threads;t++) {
-            jl_all_tls_states[t]->root_task->current_module = ptls->current_module;
+        for (int t = 0; t < jl_n_threads; t++) {
+            jl_all_tls_states[t]->root_task->current_module = jl_core_module;
         }
 
-        jl_load("boot.jl");
+        jl_load(jl_core_module, "boot.jl");
         jl_get_builtin_hooks();
-        jl_boot_file_loaded = 1;
         jl_init_box_caches();
     }
 
@@ -712,8 +746,8 @@ void _julia_init(JL_IMAGE_SEARCH rel)
         jl_add_standard_imports(jl_main_module);
     }
     ptls->current_module = jl_main_module;
-    for (int t = 0;t < jl_n_threads;t++) {
-        jl_all_tls_states[t]->root_task->current_module = ptls->current_module;
+    for (int t = 0; t < jl_n_threads; t++) {
+        jl_all_tls_states[t]->root_task->current_module = jl_main_module;
     }
 
     // This needs to be after jl_start_threads
@@ -743,11 +777,6 @@ static jl_value_t *core(const char *name)
     return jl_get_global(jl_core_module, jl_symbol(name));
 }
 
-static jl_value_t *basemod(const char *name)
-{
-    return jl_get_global(jl_base_module, jl_symbol(name));
-}
-
 // fetch references to things defined in boot.jl
 void jl_get_builtin_hooks(void)
 {
@@ -755,7 +784,6 @@ void jl_get_builtin_hooks(void)
     for (t = 0; t < jl_n_threads; t++) {
         jl_ptls_t ptls2 = jl_all_tls_states[t];
         ptls2->root_task->tls = jl_nothing;
-        ptls2->root_task->consumers = jl_nothing;
         ptls2->root_task->donenotify = jl_nothing;
         ptls2->root_task->exception = jl_nothing;
         ptls2->root_task->result = jl_nothing;
@@ -774,13 +802,16 @@ void jl_get_builtin_hooks(void)
     jl_floatingpoint_type = (jl_datatype_t*)core("AbstractFloat");
     jl_number_type = (jl_datatype_t*)core("Number");
     jl_signed_type = (jl_datatype_t*)core("Signed");
+    jl_datatype_t *jl_unsigned_type = (jl_datatype_t*)core("Unsigned");
+    jl_datatype_t *jl_integer_type = (jl_datatype_t*)core("Integer");
+    jl_bool_type->super = jl_integer_type;
+    jl_uint8_type->super = jl_unsigned_type;
+    jl_int32_type->super = jl_signed_type;
+    jl_int64_type->super = jl_signed_type;
 
     jl_errorexception_type = (jl_datatype_t*)core("ErrorException");
     jl_stackovf_exception  = jl_new_struct_uninit((jl_datatype_t*)core("StackOverflowError"));
     jl_diverror_exception  = jl_new_struct_uninit((jl_datatype_t*)core("DivideError"));
-    jl_domain_exception    = jl_new_struct_uninit((jl_datatype_t*)core("DomainError"));
-    jl_overflow_exception  = jl_new_struct_uninit((jl_datatype_t*)core("OverflowError"));
-    jl_inexact_exception   = jl_new_struct_uninit((jl_datatype_t*)core("InexactError"));
     jl_undefref_exception  = jl_new_struct_uninit((jl_datatype_t*)core("UndefRefError"));
     jl_undefvarerror_type  = (jl_datatype_t*)core("UndefVarError");
     jl_interrupt_exception = jl_new_struct_uninit((jl_datatype_t*)core("InterruptException"));
@@ -795,24 +826,18 @@ void jl_get_builtin_hooks(void)
 
     jl_weakref_type = (jl_datatype_t*)core("WeakRef");
     jl_vecelement_typename = ((jl_datatype_t*)jl_unwrap_unionall(core("VecElement")))->name;
-}
 
-JL_DLLEXPORT void jl_get_system_hooks(void)
-{
-    if (jl_argumenterror_type) return; // only do this once
-
-    jl_argumenterror_type = (jl_datatype_t*)basemod("ArgumentError");
-    jl_methoderror_type = (jl_datatype_t*)basemod("MethodError");
-    jl_loaderror_type = (jl_datatype_t*)basemod("LoadError");
-    jl_initerror_type = (jl_datatype_t*)basemod("InitError");
-    jl_complex_type = (jl_unionall_t*)basemod("Complex");
+    jl_argumenterror_type = (jl_datatype_t*)core("ArgumentError");
+    jl_methoderror_type = (jl_datatype_t*)core("MethodError");
+    jl_loaderror_type = (jl_datatype_t*)core("LoadError");
+    jl_initerror_type = (jl_datatype_t*)core("InitError");
 }
 
 void jl_get_builtins(void)
 {
     jl_builtin_throw = core("throw");           jl_builtin_is = core("===");
     jl_builtin_typeof = core("typeof");         jl_builtin_sizeof = core("sizeof");
-    jl_builtin_issubtype = core("issubtype");   jl_builtin_isa = core("isa");
+    jl_builtin_issubtype = core("<:");          jl_builtin_isa = core("isa");
     jl_builtin_typeassert = core("typeassert"); jl_builtin__apply = core("_apply");
     jl_builtin_isdefined = core("isdefined");   jl_builtin_nfields = core("nfields");
     jl_builtin_tuple = core("tuple");           jl_builtin_svec = core("svec");

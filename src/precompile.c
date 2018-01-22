@@ -6,10 +6,10 @@
 */
 
 #include <stdlib.h>
-#include <assert.h>
 
 #include "julia.h"
 #include "julia_internal.h"
+#include "julia_assert.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -17,15 +17,18 @@ extern "C" {
 
 JL_DLLEXPORT int jl_generating_output(void)
 {
-    return jl_options.outputo || jl_options.outputbc || jl_options.outputji;
+    return jl_options.outputo || jl_options.outputbc || jl_options.outputunoptbc || jl_options.outputji;
 }
 
 void jl_precompile(int all);
 
 void jl_write_compiler_output(void)
 {
-    if (!jl_generating_output())
+    if (!jl_generating_output()) {
+        if (jl_options.outputjitbc)
+            jl_dump_native(NULL, jl_options.outputjitbc, NULL, NULL, 0);
         return;
+    }
 
     if (!jl_options.incremental)
         jl_precompile(jl_options.compile_enabled == JL_OPTIONS_COMPILE_ALL);
@@ -33,6 +36,10 @@ void jl_write_compiler_output(void)
     if (!jl_module_init_order) {
         jl_printf(JL_STDERR, "WARNING: --output requested, but no modules defined during run\n");
         return;
+    }
+
+    if (jl_options.outputjitbc) {
+        jl_printf(JL_STDERR, "WARNING: --output-jit-bc is meaningless with options for dumping sysimage data\n");
     }
 
     jl_array_t *worklist = jl_module_init_order;
@@ -50,14 +57,14 @@ void jl_write_compiler_output(void)
         if (jl_options.outputji)
             if (jl_save_incremental(jl_options.outputji, worklist))
                 jl_exit(1);
-        if (jl_options.outputbc)
+        if (jl_options.outputbc || jl_options.outputunoptbc)
             jl_printf(JL_STDERR, "WARNING: incremental output to a .bc file is not implemented\n");
         if (jl_options.outputo)
             jl_printf(JL_STDERR, "WARNING: incremental output to a .o file is not implemented\n");
     }
     else {
         ios_t *s = NULL;
-        if (jl_options.outputo || jl_options.outputbc)
+        if (jl_options.outputo || jl_options.outputbc || jl_options.outputunoptbc)
             s = jl_create_system_image();
 
         if (jl_options.outputji) {
@@ -73,34 +80,22 @@ void jl_write_compiler_output(void)
             }
         }
 
-        if (jl_options.outputo || jl_options.outputbc)
+        if (jl_options.outputo || jl_options.outputbc || jl_options.outputunoptbc)
             jl_dump_native(jl_options.outputbc,
+                           jl_options.outputunoptbc,
                            jl_options.outputo,
                            (const char*)s->buf, (size_t)s->size);
     }
     JL_GC_POP();
 }
 
-static int tupletype_any_bottom(jl_value_t *sig)
-{
-    sig = jl_unwrap_unionall(sig);
-    assert(jl_is_tuple_type(sig));
-    jl_svec_t *types = ((jl_tupletype_t*)sig)->types;
-    size_t i, l = jl_svec_len(types);
-    for (i = 0; i < l; i++) {
-        if (jl_svecref(types, i) == jl_bottom_type)
-            return 1;
-    }
-    return 0;
-}
-
 // f{<:Union{...}}(...) is a common pattern
 // and expanding the Union may give a leaf function
 static void _compile_all_tvar_union(jl_value_t *methsig)
 {
-    if (!jl_is_unionall(methsig) && jl_is_leaf_type(methsig)) {
+    if (!jl_is_unionall(methsig) && jl_is_dispatch_tupletype(methsig)) {
         // usually can create a specialized version of the function,
-        // if the signature is already a leaftype
+        // if the signature is already a dispatch type
         if (jl_compile_hint((jl_tupletype_t*)methsig))
             return;
     }
@@ -129,10 +124,9 @@ static void _compile_all_tvar_union(jl_value_t *methsig)
         JL_CATCH {
             goto getnext; // sigh, we found an invalid type signature. should we warn the user?
         }
-        assert(jl_is_tuple_type(sig));
-        if (sig == jl_bottom_type || tupletype_any_bottom(sig))
+        if (!jl_has_concrete_subtype(sig))
             goto getnext; // signature wouldn't be callable / is invalid -- skip it
-        if (jl_is_leaf_type(sig)) {
+        if (jl_is_concrete_type(sig)) {
             if (jl_compile_hint((jl_tupletype_t*)sig))
                 goto getnext; // success
         }
@@ -149,7 +143,7 @@ static void _compile_all_tvar_union(jl_value_t *methsig)
                 }
                 else {
                     jl_value_t *ty = jl_nth_union_component(tv->ub, j);
-                    if (!jl_is_leaf_type(ty))
+                    if (!jl_is_concrete_type(ty))
                         ty = (jl_value_t*)jl_new_typevar(tv->name, tv->lb, ty);
                     env[2 * i + 1] = ty;
                     idx[i] = j + 1;
@@ -180,9 +174,13 @@ static void _compile_all_union(jl_value_t *sig)
             ++count_unions;
         else if (ty == jl_bottom_type)
             return; // why does this method exist?
+        else if (jl_is_datatype(ty) && !jl_has_free_typevars(ty) &&
+                 ((!jl_is_kind(ty) && ((jl_datatype_t*)ty)->isconcretetype) ||
+                  ((jl_datatype_t*)ty)->name == jl_type_typename))
+            return; // no amount of union splitting will make this a leaftype signature
     }
 
-    if (count_unions == 0) {
+    if (count_unions == 0 || count_unions >= 6) {
         _compile_all_tvar_union(sig);
         return;
     }
@@ -195,7 +193,7 @@ static void _compile_all_union(jl_value_t *sig)
     JL_GC_PUSH2(&p, &methsig);
     int idx_ctr = 0, incr = 0;
     while (!incr) {
-        jl_svec_t *p = jl_alloc_svec_uninit(l);
+        p = jl_alloc_svec_uninit(l);
         for (i = 0, idx_ctr = 0, incr = 1; i < l; i++) {
             jl_value_t *ty = jl_svecref(sigbody->parameters, i);
             if (jl_is_uniontype(ty)) {
@@ -238,7 +236,7 @@ static void _compile_all_deq(jl_array_t *found)
             jl_printf(JL_STDERR, " %d / %d\r", found_i + 1, found_l);
         jl_typemap_entry_t *ml = (jl_typemap_entry_t*)jl_array_ptr_ref(found, found_i);
         jl_method_t *m = ml->func.method;
-        if (m->isstaged)  // TODO: generic implementations of generated functions
+        if (m->source == NULL)  // TODO: generic implementations of generated functions
             continue;
         linfo = m->unspecialized;
         if (!linfo) {
@@ -247,7 +245,7 @@ static void _compile_all_deq(jl_array_t *found)
             jl_gc_wb(m, linfo);
         }
 
-        if (linfo->jlcall_api == 2)
+        if (linfo->jlcall_api == JL_API_CONST)
             continue;
         src = m->source;
         // TODO: the `unspecialized` field is not yet world-aware, so we can't store
@@ -255,7 +253,7 @@ static void _compile_all_deq(jl_array_t *found)
         //src = jl_type_infer(&linfo, jl_world_counter, 1);
         //m->unspecialized = linfo;
         //jl_gc_wb(m, linfo);
-        //if (linfo->jlcall_api == 2)
+        //if (linfo->jlcall_api == JL_API_CONST)
         //    continue;
 
         // first try to create leaf signatures from the signature declaration and compile those
@@ -273,10 +271,10 @@ static int compile_all_enq__(jl_typemap_entry_t *ml, void *env)
     jl_array_t *found = (jl_array_t*)env;
     // method definition -- compile template field
     jl_method_t *m = ml->func.method;
-    if (!m->isstaged &&
+    if (m->source &&
         (!m->unspecialized ||
          (m->unspecialized->functionObjectsDecls.functionObject == NULL &&
-          m->unspecialized->jlcall_api != 2 &&
+          m->unspecialized->jlcall_api != JL_API_CONST &&
           m->unspecialized->fptr == NULL))) {
         // found a lambda that still needs to be compiled
         jl_array_ptr_1d_push(found, (jl_value_t*)ml);
@@ -290,10 +288,7 @@ static void compile_all_enq_(jl_methtable_t *mt, void *env)
     jl_typemap_visitor(mt->defs, compile_all_enq__, env);
 }
 
-void jl_foreach_mtable_in_module(
-        jl_module_t *m,
-        void (*visit)(jl_methtable_t *mt, void *env),
-        void *env);
+void jl_foreach_reachable_mtable(void (*visit)(jl_methtable_t *mt, void *env), void *env);
 
 static void jl_compile_all_defs(void)
 {
@@ -302,7 +297,7 @@ static void jl_compile_all_defs(void)
     jl_array_t *m = jl_alloc_vec_any(0);
     JL_GC_PUSH1(&m);
     while (1) {
-        jl_foreach_mtable_in_module(jl_main_module, compile_all_enq_, m);
+        jl_foreach_reachable_mtable(compile_all_enq_, m);
         size_t changes = jl_array_len(m);
         if (!changes)
             break;
@@ -316,7 +311,7 @@ static int precompile_enq_specialization_(jl_typemap_entry_t *l, void *closure)
 {
     if (jl_is_method_instance(l->func.value) &&
             l->func.linfo->functionObjectsDecls.functionObject == NULL &&
-            l->func.linfo->jlcall_api != 2)
+            l->func.linfo->jlcall_api != JL_API_CONST)
         jl_array_ptr_1d_push((jl_array_t*)closure, (jl_value_t*)l->sig);
     return 1;
 }
@@ -338,7 +333,7 @@ static void jl_compile_specializations(void)
     // type signatures that were inferred but haven't been compiled
     jl_array_t *m = jl_alloc_vec_any(0);
     JL_GC_PUSH1(&m);
-    jl_foreach_mtable_in_module(jl_main_module, precompile_enq_all_specializations_, m);
+    jl_foreach_reachable_mtable(precompile_enq_all_specializations_, m);
     size_t i, l;
     for (i = 0, l = jl_array_len(m); i < l; i++) {
         jl_compile_hint((jl_tupletype_t*)jl_array_ptr_ref(m, i));

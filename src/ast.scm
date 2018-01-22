@@ -2,7 +2,19 @@
 
 ;; deparser
 
-(define (deparse-arglist l (sep ",")) (string.join (map deparse l) sep))
+(define (deparse-arglist l (sep ", "))
+  (if (has-parameters? l)
+      (string (string.join (map deparse (cdr l)) sep)
+              (if (length= (cdr l) 1) "," "")
+              "; "
+              (string.join (map deparse (cdar l)) ", "))
+      (string.join (map deparse l) sep)))
+
+(define (deparse-prefix-call head args opn cls)
+  (string (if (decl? head)
+              (string "(" (deparse head) ")")
+              (deparse head))
+          opn (deparse-arglist args) cls))
 
 (define (deparse e)
   (define (block-stmts e)
@@ -25,6 +37,7 @@
                ;; successfully printed as a julia value
                (string.sub s 9 (string.dec s (length s)))
                s)))
+        ((char? e) (string "'" e "'"))
         ((atom? e) (string e))
         ((eq? (car e) '|.|)
          (string (deparse (cadr e)) '|.|
@@ -37,9 +50,13 @@
         ((memq (car e) '(... |'| |.'|))
          (string (deparse (cadr e)) (car e)))
         ((or (syntactic-op? (car e)) (eq? (car e) '|<:|) (eq? (car e) '|>:|))
-         (string (deparse (cadr e)) (car e) (deparse (caddr e))))
+         (if (length= e 2)
+             (string (car e) (deparse (cadr e)))
+             (string (deparse (cadr e)) " " (car e) " " (deparse (caddr e)))))
         ((memq (car e) '($ &))
-         (string (car e) (deparse (cadr e))))
+         (if (pair? (cadr e))
+             (string (car e) "(" (deparse (cadr e)) ")")
+             (string (car e) (deparse (cadr e)))))
         ((eq? (car e) '|::|)
          (if (length> e 2)
              (string (deparse (cadr e)) (car e) (deparse (caddr e)))
@@ -49,19 +66,25 @@
                  (string #\( (deparse-arglist (cdr e))
                          (if (length= e 2) #\, "")
                          #\)))
-                ((cell1d) (string #\{ (deparse-arglist (cdr e)) #\}))
-                ((call)   (string (deparse (cadr e)) #\( (deparse-arglist (cddr e)) #\)))
-                ((ref)    (string (deparse (cadr e)) #\[ (deparse-arglist (cddr e)) #\]))
-                ((curly)  (string (deparse (cadr e)) #\{ (deparse-arglist (cddr e)) #\}))
+                ((call)  (deparse-prefix-call (cadr e) (cddr e) #\( #\)))
+                ((curly) (deparse-prefix-call (cadr e) (cddr e) #\{ #\}))
+                ((ref)   (deparse-prefix-call (cadr e) (cddr e) #\[ #\]))
                 ((macrocall) (string (cadr e) " " (deparse-arglist (cddr e) " ")))
                 ((quote inert)
                  (if (and (symbol? (cadr e))
                           (not (= (string.char (string (cadr e)) 0) #\=)))
                      (string ":" (deparse (cadr e)))
                      (string ":(" (deparse (cadr e)) ")")))
-                ((vect)   (string #\[ (deparse-arglist (cdr e)) #\]))
-                ((vcat)   (string #\[ (deparse-arglist (cdr e) ";") #\]))
-                ((hcat)   (string #\[ (deparse-arglist (cdr e) " ") #\]))
+                ((vect)  (string #\[ (deparse-arglist (cdr e) ", ") #\]))
+                ((vcat)  (string #\[ (deparse-arglist (cdr e) "; ") #\]))
+                ((typed_vcat)  (string (deparse (cadr e))
+                                       (deparse (cons 'vcat (cddr e)))))
+                ((hcat)        (string #\[ (deparse-arglist (cdr e) " ") #\]))
+                ((typed_hcat)  (string (deparse (cadr e))
+                                       (deparse (cons 'hcat (cddr e)))))
+                ((row)        (deparse-arglist (cdr e) " "))
+                ((braces)     (string #\{ (deparse-arglist (cdr e) ", ") #\}))
+                ((bracescat)  (string #\{ (deparse-arglist (cdr e) "; ") #\}))
                 ((const)  (string "const " (deparse (cadr e))))
                 ((global local)
                  (string (car e) " " (string.join (map deparse (cdr e)) ", ")))
@@ -83,18 +106,23 @@
                 ((block)
                  (deparse-block "begin" (cdr e)))
                 ((comprehension)
-                 (string "[ " (deparse (cadr e)) " for " (deparse-arglist (cddr e) ", ") " ]"))
+                 (let ((e (cadr e)))
+                   (string "[ " (deparse (cadr e)) " for " (deparse-arglist (cddr e) ", ") " ]")))
+                ((typed_comprehension)
+                 (string (deparse (cadr e))
+                         (deparse (cons 'comprehension (cddr e)))))
                 ((generator)
                  (string "(" (deparse (cadr e)) " for " (deparse-arglist (cddr e) ", ") ")"))
                 ((where)
                  (string (deparse (cadr e)) " where "
                          (if (length= e 3)
                              (deparse (caddr e))
-                             (deparse (cons 'cell1d (cddr e))))))
+                             (deparse (cons 'braces (cddr e))))))
                 ((function for while)
                  (deparse-block (string (car e) " " (deparse (cadr e)))
                                 (block-stmts (caddr e))))
                 ((copyast) (deparse (cadr e)))
+                ((kw) (string (deparse (cadr e)) " = " (deparse (caddr e))))
                 (else
                  (string e))))))
 
@@ -127,6 +155,7 @@
 ;; predicates and accessors
 
 (define (quoted? e) (memq (car e) '(quote top core globalref outerref line break inert meta)))
+(define (quotify e) `',e)
 
 (define (lam:args x) (cadr x))
 (define (lam:vars x) (llist-vars (lam:args x)))
@@ -151,6 +180,10 @@
             (if (not (symbol? (cadr v)))
                 (bad-formal-argument (cadr v)))
             (decl-var v))
+           ((meta)  ;; allow certain per-argument annotations
+            (if (nospecialize-meta? v #t)
+                (arg-name (caddr v))
+                (bad-formal-argument v)))
            (else (bad-formal-argument v))))))
 
 (define (arg-type v)
@@ -166,6 +199,10 @@
             (if (not (symbol? (cadr v)))
                 (bad-formal-argument (cadr v)))
             (decl-type v))
+           ((meta)  ;; allow certain per-argument annotations
+            (if (nospecialize-meta? v #t)
+                (arg-type (caddr v))
+                (bad-formal-argument v)))
            (else (bad-formal-argument v))))))
 
 ;; convert a lambda list into a list of just symbols
@@ -200,7 +237,13 @@
       (ssavalue? e)))
 
 (define (simple-atom? x)
-  (or (number? x) (string? x) (char? x) (eq? x 'true) (eq? x 'false)))
+  (or (number? x) (string? x) (char? x) (eq? x 'true) (eq? x 'false)
+      (and (pair? x) (memq (car x) '(ssavalue null)))
+      (eq? (typeof x) 'julia_value)))
+
+;; identify some expressions that are safe to repeat
+(define (effect-free? e)
+  (or (not (pair? e)) (ssavalue? e) (sym-dot? e) (quoted? e) (equal? e '(null))))
 
 ;; get the variable name part of a declaration, x::int => x
 (define (decl-var v)
@@ -273,6 +316,13 @@
 (define (eq-sym? a b)
   (or (eq? a b) (and (ssavalue? a) (ssavalue? b) (eqv? (cdr a) (cdr b)))))
 
+(define (blockify e)
+  (if (and (pair? e) (eq? (car e) 'block))
+      (if (null? (cdr e))
+          `(block (null))
+          e)
+      `(block ,e)))
+
 (define (make-var-info name) (list name '(core Any) 0))
 (define vinfo:name car)
 (define vinfo:type cadr)
@@ -308,6 +358,24 @@
 
 (define (kwarg? e)
   (and (pair? e) (eq? (car e) 'kw)))
+
+(define (nospecialize-meta? e (one #f))
+  (and (if one (length= e 3) (length> e 2))
+       (eq? (car e) 'meta) (eq? (cadr e) 'nospecialize)))
+
+(define (if-generated? e)
+  (and (length= e 4) (eq? (car e) 'if) (equal? (cadr e) '(generated))))
+
+(define (generated-meta? e)
+  (and (length= e 3) (eq? (car e) 'meta) (eq? (cadr e) 'generated)))
+
+(define (generated_only-meta? e)
+  (and (length= e 2) (eq? (car e) 'meta) (eq? (cadr e) 'generated_only)))
+
+(define (function-def? e)
+  (and (pair? e) (or (eq? (car e) 'function) (eq? (car e) '->)
+                     (and (eq? (car e) '=) (length= e 3)
+                          (eventually-call? (cadr e))))))
 
 ;; flatten nested expressions with the given head
 ;; (op (op a b) c) => (op a b c)

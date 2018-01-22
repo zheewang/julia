@@ -2,8 +2,8 @@
 
 module Rounding
 
-let fenv_consts = Vector{Cint}(9)
-    ccall(:jl_get_fenv_consts, Void, (Ptr{Cint},), fenv_consts)
+let fenv_consts = Vector{Cint}(uninitialized, 9)
+    ccall(:jl_get_fenv_consts, Cvoid, (Ptr{Cint},), fenv_consts)
     global const JL_FE_INEXACT = fenv_consts[1]
     global const JL_FE_UNDERFLOW = fenv_consts[2]
     global const JL_FE_OVERFLOW = fenv_consts[3]
@@ -37,7 +37,7 @@ Currently supported rounding modes are:
 - [`RoundNearestTiesAway`](@ref)
 - [`RoundNearestTiesUp`](@ref)
 - [`RoundToZero`](@ref)
-- `RoundFromZero` (`BigFloat` only)
+- `RoundFromZero` ([`BigFloat`](@ref) only)
 - [`RoundUp`](@ref)
 - [`RoundDown`](@ref)
 """
@@ -118,9 +118,9 @@ arithmetic functions ([`+`](@ref), [`-`](@ref), [`*`](@ref),
 functions may give incorrect or invalid values when using rounding modes other than the
 default `RoundNearest`.
 
-Note that this may affect other types, for instance changing the rounding mode of `Float64`
-will change the rounding mode of `Float32`. See [`RoundingMode`](@ref) for
-available modes.
+Note that this may affect other types, for instance changing the rounding mode of
+[`Float64`](@ref) will change the rounding mode of [`Float32`](@ref).
+See [`RoundingMode`](@ref) for available modes.
 
 !!! warning
 
