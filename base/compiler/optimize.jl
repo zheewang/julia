@@ -841,7 +841,7 @@ function effect_free(@nospecialize(e), src::CodeInfo, mod::Module, allow_volatil
                         return false
                     elseif is_known_call(e, getfield, src, mod)
                         nargs = length(ea)
-                        (3 < nargs < 4) || return false
+                        (3 <= nargs <= 4) || return false
                         et = exprtype(e, src, mod)
                         # TODO: check ninitialized
                         if !isa(et, Const) && !isconstType(et)
@@ -1122,7 +1122,9 @@ function inlineable(@nospecialize(f), @nospecialize(ft), e::Expr, atypes::Vector
         invoke_tt = widenconst(atypes[3])
         if !(isconcretetype(ft) || ft <: Type) || !isType(invoke_tt) ||
                 has_free_typevars(invoke_tt) || has_free_typevars(ft) || (ft <: Builtin)
-            # TODO: this is really aggressive at preventing inlining of closures. maybe drop `isconcretetype` requirement?
+            # TODO: this can be rather aggressive at preventing inlining of closures
+            # XXX: this is wrong for `ft <: Type`, since we are failing to check that
+            #      the result doesn't have subtypes, or to do an intersection lookup
             return NOT_FOUND
         end
         if !(isa(invoke_tt.parameters[1], Type) &&
@@ -1783,8 +1785,7 @@ function inline_call(e::Expr, sv::OptimizationState, stmts::Vector{Any}, boundsc
         ft = Bool
     else
         f = nothing
-        if !(isconcretetype(ft) || (widenconst(ft) <: Type)) || has_free_typevars(ft)
-            # TODO: this is really aggressive at preventing inlining of closures. maybe drop `isconcretetype` requirement?
+        if has_free_typevars(ft)
             return e
         end
     end
@@ -1941,8 +1942,7 @@ function inline_call(e::Expr, sv::OptimizationState, stmts::Vector{Any}, boundsc
                 ft = Bool
             else
                 f = nothing
-                if !(isconcretetype(ft) || (widenconst(ft) <: Type)) || has_free_typevars(ft)
-                    # TODO: this is really aggressive at preventing inlining of closures. maybe drop `isconcretetype` requirement?
+                if has_free_typevars(ft)
                     return e
                 end
             end
