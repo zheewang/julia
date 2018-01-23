@@ -2887,15 +2887,52 @@ function split_disjoint_assign!(ctx::AllocOptContext, info, key)
         # if the type of the expression gave a Conditional constraint on ty,
         # then we can use that decide the boolean just from the tag
         if isa(ty, Conditional) && isa(ty.var, Slot) && slot_id(ty.var) === key.first
+            # TODO: this was the best I could do on short notice.
             vtype = widenconst(ty.vtype)
-            if !haskey(alltypes, Any) && typeintersect(vtype, widenconst(ty.elsetype)) === Union{}
+            elsetype = widenconst(ty.elsetype)
+            if haskey(alltypes, vtype)
+                v = alltypes[vtype]
+                negate = false
+            elseif haskey(alltypes, elsetype)
+                v = alltypes[elsetype]
+                negate = true
+            end
+            if @isdefined v
+                exprs = []
+                new_var = newvar!(ctx.sv, Bool)
+                new_val = Expr(:call, GlobalRef(Core, :(===)), tag_var, v.id)
+                new_val.typ = Bool
+                new_ex = :($new_var = $new_val)
+                push!(exprs, new_ex)
+                add_def(ctx.infomap, new_var, ValueDef(new_ex, exprs, length(exprs)))
+                add_use(ctx.infomap, tag_var, ValueUse(exprs, length(exprs), new_val, 2))
+                if negate
+                    neg_new_var = newvar!(ctx.sv, Bool)
+                    new_val = Expr(:call, GlobalRef(Core.Intrinsics, :not_int), new_var)
+                    new_val.typ = Bool
+                    new_ex = :($neg_new_var = $new_val)
+                    push!(exprs, new_ex)
+                    add_def(ctx.infomap, new_new_var, ValueDef(new_ex, exprs, length(exprs)))
+                    add_use(ctx.infomap, new_var, ValueUse(exprs, length(exprs), new_val, 2))
+                    new_var = neg_new_var
+                end
+                var = new_var
+                replace_use_expr_with!(ctx, use, var, false)
+                old_expr = use.stmts[use.stmtidx]
+                push!(exprs, old_expr)
+                use.stmts[use.stmtidx] = exprs
+                scan_expr_use!(ctx.infomap, exprs, length(exprs), old_expr, ctx.sv.src)
+                ctx.changes[use.stmts=>use.stmtidx] = nothing
+                continue
+            end
+            if !haskey(alltypes, Any) && typeintersect(vtype, elsetype) === Union{}
                 exprs = []
                 vars = []
                 for (t, v) in alltypes
                     v = v::SlotNumber
                     if t <: vtype && t <: usetyp
                         new_var = newvar!(ctx.sv, Bool)
-                        new_val = :($(GlobalRef(Core, :(===)))($tag_var, $(v.id)))
+                        new_val = Expr(:call, GlobalRef(Core, :(===)), tag_var, v.id)
                         new_val.typ = Bool
                         new_ex = :($new_var = $new_val)
                         push!(exprs, new_ex)
@@ -3055,7 +3092,7 @@ function split_disjoint_assign!(ctx::AllocOptContext, info, key)
         end
         # handle general split uses
         # re-write `x::Union{0, 1, 2}` as `ifelse(tag === 2, x_2, ifelse(tag === 1, x_1, x_0))`
-        # TODO: handle this in codegen
+        # TODO: need to handle this representation in codegen
         let slot_var
             exprs = []
             for (t, v) in alltypes
