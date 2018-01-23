@@ -1,7 +1,7 @@
 default: get
 
-PKG3_VERSION := a554607c939ab73d89c3e7c6a3dd08fd870145e8
-PKG3_URL := https://github.com/JuliaLang/Pkg3.jl
+PKG3_VERSION := f4139648bfb4cdde34e50947a73f71c7ee8d29a5
+PKG3_URL := https://github.com/vchuravy/Pkg3.jl
 
 Pkg3:
 	git clone $(PKG3_URL) $@
@@ -14,8 +14,8 @@ get-pkg3:  checkout-pkg3
 clean-pkg3:
 	rm -rf Pkg3
 
-SHA_VERSION := 79bcc3fd79c1a6cc8678c39b74d721097c5cb2b0
-SHA_URL := https://github.com/staticfloat/SHA.jl
+SHA_VERSION := 8f2c9bb537097b661ac91580d18d20af51e5af22
+SHA_URL := https://github.com/vchuravy/SHA.jl
 
 SHA:
 	git clone $(SHA_URL) $@
