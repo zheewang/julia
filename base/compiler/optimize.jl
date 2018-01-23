@@ -3092,7 +3092,6 @@ function split_disjoint_assign!(ctx::AllocOptContext, info, key)
         end
         # handle general split uses
         # re-write `x::Union{0, 1, 2}` as `ifelse(tag === 2, x_2, ifelse(tag === 1, x_1, x_0))`
-        # TODO: need to handle this representation in codegen
         let slot_var
             exprs = []
             for (t, v) in alltypes
