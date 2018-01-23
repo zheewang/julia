@@ -1067,7 +1067,7 @@ let text =
 end
 
 # issue 20225, check this can print
-@test typeof(sprint(term, parse(" "))) == String
+@test typeof(sprint(Markdown.term, Markdown.parse(" "))) == String
 
 # different output depending on whether color is requested:
 let buf = IOBuffer()
