@@ -2853,7 +2853,9 @@ function split_disjoint_assign!(ctx::AllocOptContext, info, key)
     end
     # update uses to load from the correct type slot
     for use in info.uses
+        haskey(ctx.changes, use.stmts => use.stmtidx) && continue
         usex = use.expr
+        haskey(ctx.changes, usex) && continue
         slot = usex.args[use.exidx]
         usetyp = Any
         if isa(slot, TypedSlot)
@@ -2872,7 +2874,7 @@ function split_disjoint_assign!(ctx::AllocOptContext, info, key)
                         new_slot = TypedSlot(new_slot.id, usetyp)
                     end
                 end
-                use.expr.args[use.exidx] = new_slot
+                usex.args[use.exidx] = new_slot
                 add_use(ctx.infomap, new_slot, use)
                 continue
             end
