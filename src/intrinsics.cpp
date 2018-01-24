@@ -774,7 +774,8 @@ static Value *emit_untyped_intrinsic(jl_codectx_t &ctx, intrinsic f, Value **arg
 
 
 // NOTE: this is the only intrinsic we allow for an input to be a runtime NULL
-// (or other undef value) but only if you don't select it
+// (or other undef value), as a means of building up a PHI node
+// the result is undef, however, if the NULL is selected
 static jl_cgval_t emit_select_value(jl_codectx_t &ctx, jl_value_t **args, size_t nargs, jl_value_t *rt_hint)
 {
     if (nargs != 3)
@@ -857,14 +858,17 @@ static jl_cgval_t emit_select_value(jl_codectx_t &ctx, jl_value_t **args, size_t
                 PHINode *ret = PHINode::Create(T_int8, 2);
                 BasicBlock *post = BasicBlock::Create(jl_LLVMContext, "post", ctx.f);
                 BasicBlock *compute = BasicBlock::Create(jl_LLVMContext, "compute_tindex", ctx.f);
+                // compute tindex if we select the previously-boxed (and non-null) value
                 if (x_tindex) {
-                    ctx.builder.CreateCondBr(isfalse, compute, post); // compute tindex if we select y
+                    assert(y.isboxed && y.V);
+                    ctx.builder.CreateCondBr(ctx.builder.CreateAnd(isfalse, ctx.builder.CreateIsNotNull(y.V)), compute, post);
                     ret->addIncoming(x_tindex, ctx.builder.GetInsertBlock());
                     ctx.builder.SetInsertPoint(compute);
                     tindex = compute_tindex_unboxed(ctx, y, rt_hint);
                 }
                 else {
-                    ctx.builder.CreateCondBr(isfalse, post, compute); // compute tindex if we select x
+                    assert(x.isboxed);
+                    ctx.builder.CreateCondBr(ctx.builder.CreateOr(isfalse, ctx.builder.CreateIsNull(x.V)), post, compute);
                     ret->addIncoming(y_tindex, ctx.builder.GetInsertBlock());
                     ctx.builder.SetInsertPoint(compute);
                     tindex = compute_tindex_unboxed(ctx, x, rt_hint);
