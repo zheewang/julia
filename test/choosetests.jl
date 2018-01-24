@@ -48,7 +48,7 @@ function choosetests(choices = [])
         "combinatorics", "sysinfo", "env", "rounding", "ranges", "mod2pi",
         "euler", "show",
         "errorshow", "sets", "goto", "llvmcall", "llvmcall2", "grisu",
-        "some", "meta", "stacktraces", "libgit2", "docs",
+        "some", "meta", "stacktraces", "docs",
         "misc", "threads",
         "enums", "cmdlineargs", "i18n", "int",
         "checked", "bitset", "floatfuncs", "compile", "inline",
@@ -121,24 +121,6 @@ function choosetests(choices = [])
         prepend!(tests, compilertests)
     end
 
-    net_required_for = ["socket", "stdlib", "libgit2"]
-    net_on = true
-    try
-        ipa = getipaddr()
-    catch
-        @warn "Networking unavailable: Skipping tests [" * join(net_required_for, ", ") * "]"
-        net_on = false
-    end
-
-    if ccall(:jl_running_on_valgrind,Cint,()) != 0 && "rounding" in tests
-        @warn "Running under valgrind: Skipping rounding tests"
-        filter!(x -> x != "rounding", tests)
-    end
-
-    if !net_on
-        filter!(!occursin(net_required_for), tests)
-    end
-
     if "stdlib" in skip_tests
         filter!(x -> (x != "stdlib" && !(x in STDLIBS)) , tests)
     elseif "stdlib" in tests
@@ -159,6 +141,24 @@ function choosetests(choices = [])
         # Allow explicitly adding it for testing
         @warn "Skipping Profile tests"
         filter!(x -> (x != "Profile"), tests)
+    end
+
+    net_required_for = ["socket", "LibGit2", "Pkg"]
+    net_on = true
+    try
+        ipa = getipaddr()
+    catch
+        @warn "Networking unavailable: Skipping tests [" * join(net_required_for, ", ") * "]"
+        net_on = false
+    end
+
+    if ccall(:jl_running_on_valgrind,Cint,()) != 0 && "rounding" in tests
+        @warn "Running under valgrind: Skipping rounding tests"
+        filter!(x -> x != "rounding", tests)
+    end
+
+    if !net_on
+        filter!(!occursin(net_required_for), tests)
     end
 
     # The shift and invert solvers need SuiteSparse for sparse input

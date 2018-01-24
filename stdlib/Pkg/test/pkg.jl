@@ -1,6 +1,7 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 import Pkg.PkgError
+using LibGit2
 using Random: randstring
 
 function capture_stdout(f::Function)
@@ -409,13 +410,13 @@ temp_pkg_dir() do
         touch(depsbuild)
         # Pkg.build works without the src directory now
         # but it's probably fine to require it.
-        msg = read(`$(Base.julia_cmd()) --startup-file=no -e 'redirect_stderr(STDOUT); using Logging; global_logger(SimpleLogger(STDOUT)); Pkg.build("BuildFail")'`, String)
+        msg = read(`$(Base.julia_cmd()) --startup-file=no -e 'redirect_stderr(STDOUT); using Logging; global_logger(SimpleLogger(STDOUT)); import Pkg; Pkg.build("BuildFail")'`, String)
         @test contains(msg, "Building BuildFail")
         @test !contains(msg, "Build failed for BuildFail")
         open(depsbuild, "w") do fd
             println(fd, "error(\"Throw build error\")")
         end
-        msg = read(`$(Base.julia_cmd()) --startup-file=no -e 'redirect_stderr(STDOUT); using Logging; global_logger(SimpleLogger(STDOUT)); Pkg.build("BuildFail")'`, String)
+        msg = read(`$(Base.julia_cmd()) --startup-file=no -e 'redirect_stderr(STDOUT); using Logging; global_logger(SimpleLogger(STDOUT)); import Pkg; Pkg.build("BuildFail")'`, String)
         @test contains(msg, "Building BuildFail")
         @test contains(msg, "Build failed for BuildFail")
         @test contains(msg, "Pkg.build(\"BuildFail\")")
@@ -426,7 +427,7 @@ temp_pkg_dir() do
     let package = "Example"
         Pkg.rm(package)  # Remove package if installed
         @test Pkg.installed(package) === nothing  # Registered with METADATA but not installed
-        msg = read(ignorestatus(`$(Base.julia_cmd()) --startup-file=no -e "redirect_stderr(STDOUT); using Logging; global_logger(SimpleLogger(STDOUT)); Pkg.build(\"$package\")"`), String)
+        msg = read(ignorestatus(`$(Base.julia_cmd()) --startup-file=no -e "redirect_stderr(STDOUT); using Logging; global_logger(SimpleLogger(STDOUT)); import Pkg; Pkg.build(\"$package\")"`), String)
         @test contains(msg, "$package is not an installed package")
         @test !contains(msg, "signal (15)")
     end
@@ -541,7 +542,7 @@ temp_pkg_dir() do
 
         Pkg.add(package)
         msg = read(ignorestatus(`$(Base.julia_cmd()) --startup-file=no -e
-            "redirect_stderr(STDOUT); using Logging; global_logger(SimpleLogger(STDOUT)); using Example; Pkg.update(\"$package\")"`), String)
+            "redirect_stderr(STDOUT); using Logging; global_logger(SimpleLogger(STDOUT)); using Example; import Pkg; Pkg.update(\"$package\")"`), String)
         @test contains(msg, Regex("- $package.*Restart Julia to use the updated versions","s"))
     end
 
@@ -724,3 +725,4 @@ for t = 1:1_000
         @test (v ∈ a && v ∈ b) ? (v ∈ i) : (v ∉ i)
     end
 end
+
