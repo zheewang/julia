@@ -821,27 +821,35 @@ static jl_cgval_t emit_select_value(jl_codectx_t &ctx, jl_value_t **args, size_t
                 y = value_to_pointer(ctx, y);
             Value *x_vboxed = x.Vboxed;
             Value *y_vboxed = y.Vboxed;
-            if (x.isghost && y.isghost) {
+            Value *x_ptr = (x.isghost ? NULL : data_pointer(ctx, x));
+            Value *y_ptr = (y.isghost ? NULL : data_pointer(ctx, y));
+            if (!x.isghost && x.constant)
+                x_vboxed = boxed(ctx, x);
+            if (!y.isghost && y.constant)
+                y_vboxed = boxed(ctx, y);
+            if (!x_ptr && !y_ptr) {
                 ifelse_result = NULL;
             }
-            else if (x.isghost) {
-                ifelse_result = data_pointer(ctx, y);
+            else if (!x_ptr) {
+                ifelse_result = y_ptr;
             }
-            else if (y.isghost) {
-                ifelse_result = data_pointer(ctx, x);
+            else if (!y_ptr) {
+                ifelse_result = x_ptr;
             }
             else {
-                Value *x_ptr = decay_derived(data_pointer(ctx, x));
-                Value *y_ptr = decay_derived(data_pointer(ctx, y));
+                x_ptr = decay_derived(x_ptr);
+                y_ptr = decay_derived(y_ptr);
                 if (x_ptr->getType() != y_ptr->getType())
                     y_ptr = ctx.builder.CreateBitCast(y_ptr, x_ptr->getType());
                 ifelse_result = ctx.builder.CreateSelect(isfalse, y_ptr, x_ptr);
             }
             Value *tindex;
-            if (!x_tindex && x.constant)
+            if (!x_tindex && x.constant) {
                 x_tindex = ConstantInt::get(T_int8, 0x80 | get_box_tindex((jl_datatype_t*)jl_typeof(x.constant), rt_hint));
-            if (!y_tindex && y.constant)
+            }
+            if (!y_tindex && y.constant) {
                 y_tindex = ConstantInt::get(T_int8, 0x80 | get_box_tindex((jl_datatype_t*)jl_typeof(y.constant), rt_hint));
+            }
             if (x_tindex && y_tindex) {
                 tindex = ctx.builder.CreateSelect(isfalse, y_tindex, x_tindex);
             }
