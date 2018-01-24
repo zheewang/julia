@@ -1,32 +1,36 @@
 default: get
+SRCDIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+JULIAHOME := $(abspath $(SRCDIR)/..)
+SRCCACHE := $(abspath $(SRCDIR)/srccache)
+BUILDDIR := $(SRCCACHE)
 
-PKG3_VERSION := f4139648bfb4cdde34e50947a73f71c7ee8d29a5
-PKG3_URL := https://github.com/vchuravy/Pkg3.jl
+include $(JULIAHOME)/Make.inc
+include $(JULIAHOME)/deps/tools/common.mk
+include $(JULIAHOME)/deps/tools/git-external.mk
 
-Pkg3:
-	git clone $(PKG3_URL) $@
-Pkg3/$(PKG3_VERSION).commit: Pkg3
-	git -C $< checkout $(PKG3_VERSION)
-	-rm $</*.commit
-	touch $@
-checkout-pkg3: Pkg3/$(PKG3_VERSION).commit
-get-pkg3:  checkout-pkg3
+PKG3_GIT_URL := https://github.com/vchuravy/Pkg3.jl
+PKG3_TAR_URL = https://api.github.com/repos/vchuravy/Pkg3.jl/tarball/$1
+$(eval $(call git-external,Pkg3,PKG3,,,$(BUILDDIR)))
+
+extract-pkg3: $(BUILDDIR)/$(PKG3_SRC_DIR)/source-extracted
+Pkg3: $(BUILDDIR)/$(PKG3_SRC_DIR)/source-extracted
+	cp -r $(BUILDDIR)/$(PKG3_SRC_DIR) $@
+get-pkg3: Pkg3
 clean-pkg3:
-	rm -rf Pkg3
+	-rm -rf Pkg3
+	-rm -rf $(BUILDDIR)/$(PKG3_SRC_DIR)
 
-SHA_VERSION := 8f2c9bb537097b661ac91580d18d20af51e5af22
-SHA_URL := https://github.com/vchuravy/SHA.jl
+SHA_GIT_URL := https://github.com/vchuravy/SHA.jl
+SHA_TAR_URL = https://api.github.com/repos/vchuravy/SHA.jl/tarball/$1
+$(eval $(call git-external,SHA,SHA,,,$(BUILDDIR)))
 
-SHA:
-	git clone $(SHA_URL) $@
-SHA/$(SHA_VERSION).commit: SHA
-	git -C $< checkout $(SHA_VERSION)
-	-rm $</*.commit
-	touch $@
-checkout-sha: SHA/$(SHA_VERSION).commit
-get-sha: checkout-sha
+extract-sha: $(BUILDDIR)/$(SHA_SRC_DIR)/source-extracted
+SHA: $(BUILDDIR)/$(SHA_SRC_DIR)/source-extracted
+	cp -r $(BUILDDIR)/$(SHA_SRC_DIR) $@
+get-sha: SHA
 clean-sha:
-	rm -rf SHA
+	-rm -rf SHA
+	-rm -rf $(BUILDDIR)/$(SHA_SRC_DIR)
 
 get: get-pkg3 get-sha
 clean: clean-pkg3 clean-sha
