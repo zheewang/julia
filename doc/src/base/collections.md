@@ -225,7 +225,7 @@ Partially implemented by:
   * [`Array`](@ref)
   * [`BitArray`](@ref)
   * [`ImmutableDict`](@ref Base.ImmutableDict)
-  * [`Iterators.IndexValue`](@ref)
+  * [`Iterators.Pairs`](@ref)
 
 ## Set-Like Collections
 
@@ -276,5 +276,5 @@ Fully implemented by:
 
 ```@docs
 Base.Pair
-Iterators.IndexValue
+Iterators.Pairs
 ```

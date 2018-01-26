@@ -765,3 +765,7 @@ Indicate whether `x` is [`missing`](@ref).
 """
 ismissing(::Any) = false
 ismissing(::Missing) = true
+
+# forward declarations for use by iterators.jl (since parts of that file
+# are used by the compiler)
+function showarg end
